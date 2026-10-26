@@ -154,11 +154,14 @@ export class AccountController {
             this.user = data.user || null;
             const pw = document.getElementById('account-password');
             if (pw) pw.value = '';
-            this._render();
             if (this.user) {
-                await this.heartbeat();
-                this._start_device_loop();
+                // Library, sidebar and liked row are rendered for the session on
+                // boot. The cookie is set now, so reload instead of leaving the
+                // guest view on screen.
+                this._reload_page();
+                return;
             }
+            this._render();
         } catch (e) {
             this._set_error('Network error');
         }
@@ -192,11 +195,11 @@ export class AccountController {
             const code_el = document.getElementById('account-mfa-code');
             if (code_el) code_el.value = '';
             this.user = data.user || null;
-            this._render();
             if (this.user) {
-                await this.heartbeat();
-                this._start_device_loop();
+                this._reload_page();
+                return;
             }
+            this._render();
         } catch (e) {
             this._set_error('Network error');
         }
@@ -348,6 +351,10 @@ export class AccountController {
             clearInterval(this._poll_timer);
             this._poll_timer = null;
         }
+    }
+
+    _reload_page() {
+        window.location.reload();
     }
 
     _detail(data) {

@@ -276,8 +276,7 @@ describe('submit', () => {
             '/api/auth/login': json_response({ user: { username: 'ada' } }),
         });
         const controller = make_controller();
-        controller.heartbeat = vi.fn(async () => {});
-        controller._start_device_loop = vi.fn();
+        controller._reload_page = vi.fn();
         document.getElementById('account-username').value = ' ada ';
         document.getElementById('account-password').value = 'secret';
         await controller.submit('login');
@@ -287,8 +286,7 @@ describe('submit', () => {
         expect(options.body).toBe('{"username":"ada","password":"secret"}');
         expect(controller.user).toEqual({ username: 'ada' });
         expect(document.getElementById('account-password').value).toBe('');
-        expect(controller.heartbeat).toHaveBeenCalledTimes(1);
-        expect(controller._start_device_loop).toHaveBeenCalledTimes(1);
+        expect(controller._reload_page).toHaveBeenCalledTimes(1);
     });
 
     it('registers through the register endpoint', async () => {
@@ -296,10 +294,10 @@ describe('submit', () => {
             '/api/auth/register': json_response({ user: { username: 'ada' } }),
         });
         const controller = make_controller();
-        controller.heartbeat = vi.fn(async () => {});
-        controller._start_device_loop = vi.fn();
+        controller._reload_page = vi.fn();
         await controller.submit('register');
         expect(fetch_mock.mock.calls[0][0]).toBe('/api/auth/register');
+        expect(controller._reload_page).toHaveBeenCalledTimes(1);
     });
 
     it('shows a string detail from the server', async () => {
@@ -379,8 +377,7 @@ describe('MFA login', () => {
         });
         const controller = make_controller();
         controller._mfa_token = 'tok';
-        controller.heartbeat = vi.fn(async () => {});
-        controller._start_device_loop = vi.fn();
+        controller._reload_page = vi.fn();
         document.getElementById('account-mfa-code').value = ' 123456 ';
         await controller.submit_mfa();
         const [url, options] = fetch_mock.mock.calls[0];
@@ -389,7 +386,7 @@ describe('MFA login', () => {
         expect(controller._mfa_token).toBe('');
         expect(controller.user).toEqual({ username: 'ada' });
         expect(document.getElementById('account-mfa-code').value).toBe('');
-        expect(controller.heartbeat).toHaveBeenCalledTimes(1);
+        expect(controller._reload_page).toHaveBeenCalledTimes(1);
     });
 
     it('submit_mfa shows the server detail', async () => {
