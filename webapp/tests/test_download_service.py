@@ -297,6 +297,45 @@ class TestVariantResolution:
         service._clear_stale_variant(t, "64")
         assert t.media_variants == {"64": "youtube/Song [abc]__64k.webm"}
 
+    def test_settle_marks_queued_track_with_playable_file_done(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "hard/Song__120k.mp3")
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track(status=DownloadStatus.queued, variants={"120": "hard/Song__120k.mp3"})
+        t.media_relpath = "hard/Song__120k.mp3"
+        pl.add_track(t)
+        service._settle_playable_statuses()
+        assert t.status == DownloadStatus.done
+
+    def test_settle_marks_downloading_track_with_playable_file_done(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "hard/Song__120k.mp3")
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track(status=DownloadStatus.downloading, variants={"120": "hard/Song__120k.mp3"})
+        pl.add_track(t)
+        service._settle_playable_statuses()
+        assert t.status == DownloadStatus.done
+
+    def test_settle_leaves_queued_track_without_file(
+        self, service: DownloadService
+    ) -> None:
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track(status=DownloadStatus.queued)
+        pl.add_track(t)
+        service._settle_playable_statuses()
+        assert t.status == DownloadStatus.queued
+
+    def test_settle_leaves_done_track_with_missing_file(
+        self, service: DownloadService
+    ) -> None:
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track(variants={"192": "hard/missing.mp3"})
+        pl.add_track(t)
+        service._settle_playable_statuses()
+        assert t.status == DownloadStatus.done
+
     def test_resolve_variant_relpath(self, service: DownloadService, temp_root: Path) -> None:
         write_media(temp_root, "youtube/Song [dQw4w9WgXcQ]__64k.webm")
         write_media(temp_root, "youtube/Other [aaaaaaaaaaa]__64k.webm")

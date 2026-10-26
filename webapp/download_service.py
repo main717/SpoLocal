@@ -217,6 +217,7 @@ class DownloadService:
         self._sync_from_download_folders()
         self._reset_interrupted_downloads()
         self._reconcile_media_paths()
+        self._settle_playable_statuses()
 
         set_track_status_change_listener(self._invalidate_error_rows_cache)
 
@@ -587,6 +588,26 @@ class DownloadService:
             for track in pl.tracks:
                 if self._repair_stale_media_relpath(track):
                     changed = True
+        if changed:
+            self._save_playlists()
+
+    def _settle_playable_statuses(self) -> None:
+        """Clear queued/downloading rows that already have a playable file.
+
+        The in-memory job queue is lost on restart, and ``_worker_main`` only
+        re-enqueues queued rows *without* a file. Without this, a row whose
+        download was interrupted keeps reporting ``queued`` forever even though
+        the track plays from an existing variant.
+        """
+        changed = False
+        for pl in self.playlists.values():
+            for track in pl.tracks:
+                if track.status not in (DownloadStatus.queued, DownloadStatus.downloading):
+                    continue
+                if not self._track_has_resolved_file(track):
+                    continue
+                pl.update_track_status(track.id, DownloadStatus.done)
+                changed = True
         if changed:
             self._save_playlists()
 
