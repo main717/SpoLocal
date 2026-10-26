@@ -421,7 +421,11 @@ export class PlaylistTransportController {
                 preliminarySrc = prefs ? prefs.resolvePlaySrc(packed) : (packed.play_src || '');
             }
         }
-        if (!preliminarySrc) return;
+        if (!preliminarySrc) {
+            if (hub.subEl) hub.subEl.textContent = 'Track unavailable.';
+            this.setPlayUi(false);
+            return;
+        }
 
         this.leave_search_stream();
 
@@ -453,7 +457,13 @@ export class PlaylistTransportController {
             }
             // Not ready and nothing to play at this tier: stop rather than quietly
             // falling back to the stream, which is best-quality audio.
-            if (!ready && !prefs.hasVariant(t, playback_q) && !prefs.streamFitsTier(playback_q)) return;
+            if (!ready && !prefs.hasVariant(t, playback_q) && !prefs.streamFitsTier(playback_q)) {
+                if (hub.subEl) {
+                    hub.subEl.textContent = 'Not downloaded at ' + prefs.formatLabel(playback_q) + '.';
+                }
+                this.setPlayUi(false);
+                return;
+            }
         }
 
         const playSrc = prefs
@@ -760,9 +770,9 @@ export class PlaylistTransportController {
     }
 
     /** Recommendation rows currently rendered for the viewed playlist. */
-    read_rec_rows() {
+    read_rec_rows(table_id) {
         const rows = [];
-        const table = document.getElementById('playlist-recommendations-table');
+        const table = document.getElementById(table_id || 'playlist-recommendations-table');
         if (!table) return rows;
         table.querySelectorAll('tr.track-row[data-youtube-video-id]').forEach((r) => {
             const vid = String(r.getAttribute('data-youtube-video-id') || '').trim();
@@ -775,6 +785,11 @@ export class PlaylistTransportController {
             });
         });
         return rows;
+    }
+
+    /** Rows currently rendered on the Song Mix page. */
+    song_mix_entries() {
+        return this.read_rec_rows('song-mix-table');
     }
 
     /**
@@ -809,6 +824,13 @@ export class PlaylistTransportController {
     /** Every playlist track plus every recommendation, with a cache signature. */
     mix_pool() {
         const hub = this.state.hub;
+        if (hub.songMixView) {
+            // The Song Mix page is its own pool: its rows only, never the
+            // playlist tracks or the playlist's recommendation snapshot.
+            const recs = this.song_mix_entries();
+            const sig = 'song-mix::' + recs.map((r) => r.video_id).join('|');
+            return { pool: recs, sig };
+        }
         const tracks = hub.playable || [];
         const recs = this.mix_rec_entries();
         const sig = tracks.map((t) => String(t.id)).join('|')
@@ -859,9 +881,8 @@ export class PlaylistTransportController {
     }
 
     rec_row_for_video(vid) {
-        const table = document.getElementById('playlist-recommendations-table');
-        if (!table || !vid) return null;
-        const rows = table.querySelectorAll('tr.track-row[data-youtube-video-id]');
+        if (!vid) return null;
+        const rows = this.rec_or_mix_rows();
         for (let i = 0; i < rows.length; i++) {
             if (rows[i].getAttribute('data-youtube-video-id') === vid) return rows[i];
         }
@@ -890,12 +911,13 @@ export class PlaylistTransportController {
 
     /** Advance through the playlist + recommendations mix, one rolling window. */
     playAtDeltaMix(delta) {
+        const hub = this.state.hub;
         let order = this.mix_order();
         if (!order.length) {
             this.stop_playback();
             return;
         }
-        if (!order.some((e) => e.kind === 'rec')) this.ensure_mix_recommendations();
+        if (!hub.songMixView && !order.some((e) => e.kind === 'rec')) this.ensure_mix_recommendations();
         let idx = this.mix_current_index(order);
         if (delta > 0 && idx >= 0) {
             this.advance_mix_window(order[idx]);
@@ -970,6 +992,8 @@ export class PlaylistTransportController {
     /** Load the playlist recommendations once so mix mode has something to add. */
     ensure_mix_recommendations() {
         const hub = this.state.hub;
+        // The Song Mix page already has its own list; never fetch playlist recs for it.
+        if (hub.songMixView) return;
         const pid = String(hub.playlistId || '');
         if (!pid || hub._mixRecsRequestedFor === pid) return;
         if (typeof window.ensurePlaylistRecommendations !== 'function') return;

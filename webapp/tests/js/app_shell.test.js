@@ -458,6 +458,48 @@ describe('static helpers', () => {
     });
 });
 
+describe('playPreview on the song mix page', () => {
+    it('always streams the mix row instead of playing its library match', async () => {
+        const shell = await load_shell();
+        const play = vi.fn(() => Promise.resolve());
+        const hub = {
+            songMixView: true,
+            currentTrackId: 't1',
+            searchStreamActive: false,
+            searchStreamHit: null,
+            playbackContext: 'playlist',
+            audio: {
+                paused: false,
+                src: '',
+                play,
+                pause: vi.fn(),
+                removeAttribute: vi.fn(),
+                load: vi.fn(),
+            },
+            playLibraryEntry: vi.fn(),
+            setPlayUi: vi.fn(),
+        };
+        window.SpolocalPlayerHub = hub;
+        shell.stopPreview = vi.fn();
+        shell.reset_search_card_buttons = vi.fn();
+        shell.next_stream_load_gen = vi.fn();
+        shell.prepare_stream_url = vi.fn(() => Promise.resolve());
+
+        shell.playPreview({
+            video_id: 'abcdefghijk',
+            title: 'Mix',
+            artist: 'Artist',
+            library_matches: [{ playlist_id: 'p1', track_id: 't1', play_src: '/media/t1.webm' }],
+        }, null);
+
+        expect(hub.playLibraryEntry).not.toHaveBeenCalled();
+        expect(hub.searchStreamActive).toBe(true);
+        expect(hub.searchStreamHit).toEqual(expect.objectContaining({ video_id: 'abcdefghijk' }));
+        expect(hub.playbackContext).toBe('recs');
+        expect(play).toHaveBeenCalled();
+    });
+});
+
 describe('playlists catalog and sidebar', () => {
     it('reloads the catalog and reports whether it changed', async () => {
         const shell = await load_shell();

@@ -41,6 +41,23 @@ function mount_recs(vids) {
     return grid;
 }
 
+function mount_table(table_id, vids) {
+    const table = document.createElement('table');
+    table.id = table_id;
+    const tbody = document.createElement('tbody');
+    vids.forEach((vid) => {
+        const tr = document.createElement('tr');
+        tr.className = 'track-row';
+        tr.setAttribute('data-youtube-video-id', vid);
+        tr.setAttribute('data-title', 'Title ' + vid);
+        tr.setAttribute('data-artist', 'Artist ' + vid);
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    document.body.appendChild(table);
+    return table;
+}
+
 function kinds(order) {
     return order.map((e) => e.kind + ':' + (e.kind === 'track' ? e.id : e.video_id));
 }
@@ -49,6 +66,7 @@ beforeEach(() => {
     document.body.innerHTML = '';
     delete window.playPreview;
     delete window.ensurePlaylistRecommendations;
+    delete window.SpolocalQualityPrefs;
 });
 
 describe('mix_rec_entries', () => {
@@ -307,6 +325,116 @@ describe('playAtDeltaMix', () => {
     });
 });
 
+describe('song mix view', () => {
+    it('uses only the song-mix rows as the pool', () => {
+        mount_table('song-mix-table', ['m1', 'm2']);
+        mount_table('playlist-recommendations-table', ['r1', 'r2']);
+        const { transport } = makeTransport({ songMixView: true });
+        transport.shuffle = { shuffleArrayInPlace: vi.fn() };
+        expect(kinds(transport.mix_order())).toEqual(['rec:m1', 'rec:m2']);
+    });
+
+    it('ignores the playlist recommendation snapshot', () => {
+        mount_table('song-mix-table', ['m1']);
+        const { transport } = makeTransport({
+            songMixView: true,
+            mixRecsPid: 'p1',
+            mixRecs: [{ kind: 'rec', video_id: 'stale', title: '', artist: '' }],
+        });
+        transport.shuffle = { shuffleArrayInPlace: vi.fn() };
+        expect(kinds(transport.mix_order())).toEqual(['rec:m1']);
+    });
+
+    it('advances inside the song mix and never into the playlist', () => {
+        mount_table('song-mix-table', ['m1', 'm2', 'm3']);
+        const { transport, hub } = makeTransport({
+            songMixView: true,
+            playbackContext: 'recs',
+            currentTrackId: 't1',
+            searchStreamHit: { video_id: 'm1' },
+        });
+        hub.searchStreamActive = true;
+        transport.shuffle = { shuffleArrayInPlace: vi.fn() };
+
+        transport.playAtDeltaMix(1);
+
+        expect(transport.playTrackById).not.toHaveBeenCalled();
+        expect(transport.play_rec_or_mix_row).toHaveBeenCalledTimes(1);
+        const row = transport.play_rec_or_mix_row.mock.calls[0][0];
+        expect(row.getAttribute('data-youtube-video-id')).toBe('m2');
+    });
+
+    it('never asks for playlist recommendations', () => {
+        mount_table('song-mix-table', ['m1']);
+        const { transport } = makeTransport({ songMixView: true });
+        transport.ensure_mix_recommendations = vi.fn();
+        transport.playAtDeltaMix(1);
+        expect(transport.ensure_mix_recommendations).not.toHaveBeenCalled();
+    });
+
+    it('finds a row in the song-mix table', () => {
+        const table = mount_table('song-mix-table', ['m1']);
+        const { transport } = makeTransport({ songMixView: true });
+        expect(transport.rec_row_for_video('m1')).toBe(table.querySelector('tr'));
+    });
+});
+
+describe('playLibraryEntry', () => {
+    it('shows why a track cannot play at Data Saver', async () => {
+        const { transport, hub } = makeTransport({
+            titleEl: { textContent: '' },
+            subEl: { textContent: '' },
+            playingPlaylistId: '',
+        });
+        transport.setPlayUi = vi.fn();
+        transport.quality = {
+            ensurePlaybackVariantReady: vi.fn(async () => false),
+            fetchTrackPayload: vi.fn(async () => null),
+            patchTrackInHub: vi.fn(),
+        };
+        window.SpolocalQualityPrefs = {
+            resolvePlaySrc: () => '/media/t1.webm',
+            normalizeMediaPath: () => 't1.webm',
+            playbackKbps: () => '64',
+            hasVariant: () => false,
+            streamFitsTier: () => false,
+            resolveExactPlaySrc: () => '',
+            resolvePlaybackPlaySrc: () => '',
+            formatLabel: () => 'Data Saver',
+        };
+
+        await transport.playLibraryEntry({ playlist_id: 'p1', track_id: 't1', play_src: '/media/t1.webm' }, 'recs');
+
+        expect(hub.subEl.textContent).toBe('Not downloaded at Data Saver.');
+        expect(transport.setPlayUi).toHaveBeenCalledWith(false);
+        expect(transport.playTrackById).not.toHaveBeenCalled();
+    });
+
+    it('shows a message when the entry has no source at all', async () => {
+        const { transport, hub } = makeTransport({
+            titleEl: { textContent: '' },
+            subEl: { textContent: '' },
+            playingPlaylistId: '',
+        });
+        transport.setPlayUi = vi.fn();
+        transport.quality = {
+            fetchTrackPayload: vi.fn(async () => null),
+            patchTrackInHub: vi.fn(),
+        };
+        window.SpolocalQualityPrefs = {
+            resolvePlaySrc: () => '',
+            normalizeMediaPath: () => '',
+            playbackKbps: () => '192',
+            hasVariant: () => false,
+        };
+
+        await transport.playLibraryEntry({ playlist_id: 'p1', track_id: 't1' }, 'recs');
+
+        expect(hub.subEl.textContent).toBe('Track unavailable.');
+        expect(transport.setPlayUi).toHaveBeenCalledWith(false);
+    });
+});
+
 describe('ensure_mix_recommendations', () => {
     it('requests recommendations once per playlist', () => {
         const ensure = vi.fn();
@@ -322,6 +450,14 @@ describe('ensure_mix_recommendations', () => {
         transport.ensure_mix_recommendations();
         expect(ensure).toHaveBeenCalledTimes(2);
         expect(ensure).toHaveBeenLastCalledWith('p2');
+    });
+
+    it('does nothing in the song mix view', () => {
+        const ensure = vi.fn();
+        window.ensurePlaylistRecommendations = ensure;
+        const { transport } = makeTransport({ songMixView: true });
+        transport.ensure_mix_recommendations();
+        expect(ensure).not.toHaveBeenCalled();
     });
 
     it('does nothing without a playlist id or the shell hook', () => {

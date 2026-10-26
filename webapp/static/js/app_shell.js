@@ -535,7 +535,10 @@ class AppShellController {
         const vid = hit && typeof hit === 'object' ? (hit.video_id || '') : String(hit || '');
         if (!vid) return;
         const hub = window.SpolocalPlayerHub;
-        if ((this.playing_stream_vid() === vid || AppShellController.library_match_is_current(hit)) && hub && hub.audio) {
+        // Song Mix rows are YouTube mix hits, never library tracks. Always stream
+        // them, so next keeps advancing inside the mix instead of the playlist.
+        const mix_view = !!(hub && hub.songMixView);
+        if (!mix_view && (this.playing_stream_vid() === vid || AppShellController.library_match_is_current(hit)) && hub && hub.audio) {
             if (hub.audio.paused) {
                 hub.audio.play().catch((err) => {
                     if (err && err.name === 'AbortError') return;
@@ -547,7 +550,7 @@ class AppShellController {
             this.sync_search_card_play_buttons();
             return;
         }
-        const local = AppShellController.library_local_match(hit);
+        const local = mix_view ? null : AppShellController.library_local_match(hit);
         if (local && local.playlist_id && local.track_id && hub && typeof hub.playLibraryEntry === 'function') {
             this.stopPreview({ restore_library: false });
             hub.searchStreamActive = false;
