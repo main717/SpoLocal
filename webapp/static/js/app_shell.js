@@ -296,6 +296,7 @@ class AppShellController {
         const likedId = String(window.__likedPlaylistId || '').trim();
         this.playlistsCatalog.forEach((pl) => {
             // The liked songs playlist lives in the BROWSE section, under Home.
+            if (pl.system_locked) return;
             if (likedId && pl.id === likedId) return;
             const isActive = !!activeId && pl.id === activeId;
             const card = document.createElement('div');
@@ -1446,6 +1447,13 @@ class AppShellController {
         // The sidebar is server-rendered; remember its active id so the first
         // refresh does not rebuild (and reload) every tile.
         this._sidebarActiveId = String(window.__spaPlaylistId || '').trim();
+        // A PWA launch can serve the document without the session cookie even
+        // though API calls carry it. Rebuild the guest sidebar from the catalog.
+        const hint_wrap = document.getElementById('sidebar-login-hint-wrap');
+        if (hint_wrap && this.playlistsCatalog.length) {
+            hint_wrap.classList.add('hidden');
+            this.renderSidebarPlaylistList(this._sidebarActiveId);
+        }
         if (typeof window.refreshHomeView === 'function') window.refreshHomeView();
 
         // Preview audio ends/errors

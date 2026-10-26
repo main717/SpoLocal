@@ -65,8 +65,9 @@ load_dotenv(_webapp_dir / ".env")
 
 app = FastAPI(title="SpoLocal")
 
-# Public reads may be called cross-origin. Cookies stay same-origin only
-# (SameSite=strict). Never pair allow_origins=["*"] with credentials.
+# Public reads may be called cross-origin. Session cookies use SameSite=Lax so
+# they survive top-level navigations (installed PWA launches, reloads). Never
+# pair allow_origins=["*"] with credentials.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -309,7 +310,7 @@ def _session_cookie_kwargs(request: Request) -> dict[str, Any]:
     proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http").split(",")[0].strip()
     return {
         "httponly": True,
-        "samesite": "strict",
+        "samesite": "lax",
         "secure": proto == "https",
         "max_age": 30 * 24 * 3600,
         "path": "/",
