@@ -293,7 +293,10 @@ class AppShellController {
         const activeId = (activePlaylistId || '').trim();
         this._sidebarActiveId = activeId;
         list.innerHTML = '';
+        const likedId = String(window.__likedPlaylistId || '').trim();
         this.playlistsCatalog.forEach((pl) => {
+            // The liked songs playlist lives in the BROWSE section, under Home.
+            if (likedId && pl.id === likedId) return;
             const isActive = !!activeId && pl.id === activeId;
             const card = document.createElement('div');
             card.className = 'group playlist-card rounded-md text-sm' + (isActive ? ' nav-active' : '');

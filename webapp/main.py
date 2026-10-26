@@ -280,12 +280,17 @@ async def index(request: Request, playlist_id: Optional[str] = None):
     nav_current = None if is_home else (current.id if current else None)
     cover_tier = _playback_cover_tier(request)
     playlist_nav = service.list_playlist_nav(nav_current, uid, cover_tier)
+    liked_id = service.liked_songs_id_for(uid)
+    liked_nav = next((row for row in playlist_nav if row["id"] == liked_id), None)
+    if liked_nav is not None:
+        playlist_nav = [row for row in playlist_nav if row["id"] != liked_id]
     playlist_catalog = service.list_playlist_catalog(uid, cover_tier)
     return templates.TemplateResponse(
         request,
         "index.html",
         {
             "playlist_nav": playlist_nav,
+            "liked_nav": liked_nav,
             "playlist_catalog": playlist_catalog,
             "current": current,
             "is_home": is_home,
