@@ -592,17 +592,18 @@ class DownloadService:
             self._save_playlists()
 
     def _settle_playable_statuses(self) -> None:
-        """Clear queued/downloading rows that already have a playable file.
+        """Make status match disk: a playable row is done, whatever it claimed.
 
         The in-memory job queue is lost on restart, and ``_worker_main`` only
         re-enqueues queued rows *without* a file. Without this, a row whose
         download was interrupted keeps reporting ``queued`` forever even though
-        the track plays from an existing variant.
+        the track plays from an existing variant. The same applies to rows left
+        at ``error`` after a later job produced the file.
         """
         changed = False
         for pl in self.playlists.values():
             for track in pl.tracks:
-                if track.status not in (DownloadStatus.queued, DownloadStatus.downloading):
+                if track.status == DownloadStatus.done:
                     continue
                 if not self._track_has_resolved_file(track):
                     continue

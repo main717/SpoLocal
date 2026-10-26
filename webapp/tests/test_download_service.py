@@ -327,6 +327,27 @@ class TestVariantResolution:
         service._settle_playable_statuses()
         assert t.status == DownloadStatus.queued
 
+    def test_settle_marks_error_track_with_playable_file_done(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "youtube/Song [abc]__120k.mp3")
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track(status=DownloadStatus.error, variants={"120": "youtube/Song [abc]__120k.mp3"})
+        t.error = "No audio file found under downloads/youtube after YouTube download."
+        pl.add_track(t)
+        service._settle_playable_statuses()
+        assert t.status == DownloadStatus.done
+        assert t.error is None
+
+    def test_settle_leaves_error_track_without_file(
+        self, service: DownloadService
+    ) -> None:
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track(status=DownloadStatus.error, variants={"192": "hard/missing.mp3"})
+        pl.add_track(t)
+        service._settle_playable_statuses()
+        assert t.status == DownloadStatus.error
+
     def test_settle_leaves_done_track_with_missing_file(
         self, service: DownloadService
     ) -> None:
