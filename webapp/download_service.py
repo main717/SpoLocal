@@ -216,6 +216,7 @@ class DownloadService:
         self._load_playlists()
         self._sync_from_download_folders()
         self._reset_interrupted_downloads()
+        self._reconcile_media_paths()
 
         set_track_status_change_listener(self._invalidate_error_rows_cache)
 
@@ -542,6 +543,52 @@ class DownloadService:
             pl.update_track_status(track_id, DownloadStatus.done)
         else:
             pl.update_track_status(track_id, DownloadStatus.error, "Download did not produce a file.")
+
+    def _best_existing_variant_relpath(self, track: Track) -> Optional[str]:
+        """Highest-quality variant whose file is actually on disk."""
+        variants = track.media_variants or {}
+        keys = sorted(variants.keys(), key=lambda k: int(k) if str(k).isdigit() else 0, reverse=True)
+        for key in keys:
+            rel = variants.get(key)
+            if not rel:
+                continue
+            try:
+                if (self.root / "downloads" / rel).resolve().is_file():
+                    return rel
+            except OSError:
+                continue
+        return None
+
+    def _repair_stale_media_relpath(self, track: Track) -> bool:
+        """Point a missing primary path at an existing variant.
+
+        Legacy rows kept the deleted source file as ``media_relpath`` after a
+        transcode. ``track_play_variants`` then advertises that missing file as
+        the 192k variant, so the client requests it and gets a 404.
+        """
+        rel = (track.media_relpath or "").strip()
+        if not rel:
+            return False
+        try:
+            if (self.root / "downloads" / rel).resolve().is_file():
+                return False
+        except OSError:
+            pass
+        best = self._best_existing_variant_relpath(track)
+        if not best:
+            return False
+        track.media_relpath = best
+        return True
+
+    def _reconcile_media_paths(self) -> None:
+        """Repair stale primary paths once at startup and persist the result."""
+        changed = False
+        for pl in self.playlists.values():
+            for track in pl.tracks:
+                if self._repair_stale_media_relpath(track):
+                    changed = True
+        if changed:
+            self._save_playlists()
 
     def _clear_stale_variant(self, track: Track, quality: str) -> None:
         """Drop a variant entry when its file is missing on disk."""
@@ -1522,6 +1569,8 @@ class DownloadService:
                 changed = self._hydrate_albums_cached(pl, cache_entry, persist) or changed
 
             for t in pl.tracks:
+                if self._repair_stale_media_relpath(t):
+                    changed = True
                 if self._media_source_ids(t)[0] and self._sync_track_media_from_source(t):
                     changed = True
 

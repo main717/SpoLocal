@@ -247,6 +247,44 @@ class TestVariantResolution:
         assert service._relpath_matches_quality("legacy.mp3", "64")
         assert not service._relpath_matches_quality("legacy.mp3", "192")
 
+    def test_repair_stale_media_relpath_points_at_existing_variant(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "hard/Song__120k.mp3")
+        t = make_track(variants={"120": "hard/Song__120k.mp3"})
+        t.media_relpath = "hard/Song.mp3"
+        assert service._repair_stale_media_relpath(t)
+        assert t.media_relpath == "hard/Song__120k.mp3"
+
+    def test_repair_stale_media_relpath_keeps_existing_primary(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "hard/Song.mp3")
+        write_media(temp_root, "hard/Song__120k.mp3")
+        t = make_track(variants={"120": "hard/Song__120k.mp3"})
+        t.media_relpath = "hard/Song.mp3"
+        assert not service._repair_stale_media_relpath(t)
+        assert t.media_relpath == "hard/Song.mp3"
+
+    def test_repair_stale_media_relpath_without_variant_is_noop(
+        self, service: DownloadService
+    ) -> None:
+        t = make_track()
+        t.media_relpath = "hard/Song.mp3"
+        assert not service._repair_stale_media_relpath(t)
+        assert t.media_relpath == "hard/Song.mp3"
+
+    def test_hydrate_repairs_stale_primary_path(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "hard/Song__120k.mp3")
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track(variants={"120": "hard/Song__120k.mp3"})
+        t.media_relpath = "hard/Song.mp3"
+        pl.add_track(t)
+        service.hydrate_media_paths(pl, persist=False)
+        assert t.media_relpath == "hard/Song__120k.mp3"
+
     def test_clear_stale_variant(self, service: DownloadService, temp_root: Path) -> None:
         write_media(temp_root, "youtube/Song [abc]__64k.webm")
         t = make_track(variants={"64": "youtube/Song [abc]__64k.webm", "192": "youtube/missing__192k.opus"})
