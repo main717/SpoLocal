@@ -6,7 +6,7 @@ import { PlaybackQualityController } from '../player/playback_quality_controller
 import { PlaylistQueueController } from '../player/queue_controller.js?v=93';
 import { PlaylistLyricsController } from '../player/lyrics_controller.js?v=91';
 import { PlaylistEditModalController } from '../ui/edit_modal_controller.js';
-import { PlaylistContextMenuController } from '../ui/context_menu_controller.js?v=93';
+import { PlaylistContextMenuController } from '../ui/context_menu_controller.js?v=94';
 import { PlaylistDownloadController } from '../services/download_controller.js?v=95';
 import { PlaylistColumnResizer } from '../ui/column_resizer.js';
 import { PlaylistHomeViewController } from './home_view_controller.js?v=92';
@@ -512,6 +512,22 @@ export class PlaylistSessionController {
         else this._viewCache.delete(String(playlistId));
     }
 
+    /** Re-render a playlist in place without a page load or touching playback. */
+    async reloadPlaylistView(playlistId) {
+        if (!playlistId) return false;
+        this.invalidateViewCache(playlistId);
+        try {
+            const r = await fetch('/api/playlist/view?playlist_id=' + encodeURIComponent(playlistId));
+            if (!r.ok) return false;
+            const data = await r.json();
+            this._viewCache.set(String(playlistId), { data: data, ts: Date.now() });
+            this.applySpaPlaylist(data);
+            return true;
+        } catch (x) {
+            return false;
+        }
+    }
+
     _applyNavigation(data, pid, pushHistory, onLoaded) {
         this.applySpaPlaylist(data);
         if (pushHistory) {
@@ -670,6 +686,7 @@ export class PlaylistSessionController {
                 window.applySpaPlaylist = (data) => self.applySpaPlaylist(data);
                 window.applySpaHome = (data) => self.applySpaHome(data);
                 window.invalidatePlaylistViewCache = (pid) => self.invalidateViewCache(pid);
+                window.refreshPlaylistView = (pid) => self.reloadPlaylistView(pid);
             }
         } catch (e) {}
     }

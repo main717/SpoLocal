@@ -611,25 +611,39 @@ describe('openContextMenu for tracks', () => {
         expect(controller.trackInfo.open).toHaveBeenCalledWith('p1', 't1');
     });
 
-    it('deletes the track after confirmation', () => {
+    it('deletes the track via fetch and refreshes in place', async () => {
         const { hub, items } = make_hub({ tracks: [library_track()] });
         vi.stubGlobal('confirm', vi.fn(() => true));
+        const fetch_mock = vi.fn(async () => ({ ok: true }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const refresh = vi.fn(() => Promise.resolve(true));
+        window.refreshPlaylistView = refresh;
         const controller = new PlaylistContextMenuController({ hub });
         controller.openContextMenu(10, 20, track_payload());
         find_button(items, 'Delete').click();
-        const form = document.querySelector('form');
-        expect(form.getAttribute('action')).toBe('/playlists/p1/tracks/t1/delete');
-        expect(HTMLFormElement.prototype.submit).toHaveBeenCalled();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(document.querySelector('form')).toBeNull();
+        expect(HTMLFormElement.prototype.submit).not.toHaveBeenCalled();
+        expect(fetch_mock).toHaveBeenCalledTimes(1);
+        expect(fetch_mock.mock.calls[0][0]).toBe('/playlists/p1/tracks/t1/delete');
+        expect(fetch_mock.mock.calls[0][1].method).toBe('POST');
+        expect(fetch_mock.mock.calls[0][1].headers['X-Spa-Request']).toBe('1');
+        expect(refresh).toHaveBeenCalledWith('p1');
+        delete window.refreshPlaylistView;
     });
 
     it('does not delete the track when confirmation is cancelled', () => {
         const { hub, items } = make_hub({ tracks: [library_track()] });
         vi.stubGlobal('confirm', vi.fn(() => false));
+        const fetch_mock = vi.fn();
+        vi.stubGlobal('fetch', fetch_mock);
         const controller = new PlaylistContextMenuController({ hub });
         controller.openContextMenu(10, 20, track_payload());
         find_button(items, 'Delete').click();
         expect(document.querySelector('form')).toBeNull();
         expect(HTMLFormElement.prototype.submit).not.toHaveBeenCalled();
+        expect(fetch_mock).not.toHaveBeenCalled();
     });
 
     it('hides queue and save actions when there is no play source', () => {

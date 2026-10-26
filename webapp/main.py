@@ -1139,6 +1139,8 @@ async def delete_track(request: Request, playlist_id: str, track_id: str):
     if not service.delete_track(pid, tid):
         raise HTTPException(status_code=404, detail="Playlist or track not found")
     _unlink_track_cover_caches(pid, tid)
+    if request.headers.get("x-spa-request") == "1":
+        return Response(status_code=204)
     return RedirectResponse(f"/?playlist_id={pid}", status_code=303)
 
 

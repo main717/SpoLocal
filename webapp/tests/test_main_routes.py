@@ -245,6 +245,26 @@ class TestOwnership:
         tid = pl.tracks[0].id
         assert client.get(f"/api/playlists/{pl.id}/tracks/{tid}/info").status_code == 401
 
+    def test_delete_track_redirects_by_default(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=2)
+        tid = pl.tracks[0].id
+        resp = client.post(f"/playlists/{pl.id}/tracks/{tid}/delete", follow_redirects=False)
+        assert resp.status_code == 303
+        assert resp.headers["location"] == f"/?playlist_id={pl.id}"
+        assert len(service.playlists[pl.id].tracks) == 1
+
+    def test_delete_track_spa_request_returns_204(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=2)
+        tid = pl.tracks[0].id
+        resp = client.post(
+            f"/playlists/{pl.id}/tracks/{tid}/delete",
+            headers={"X-Spa-Request": "1"},
+        )
+        assert resp.status_code == 204
+        assert len(service.playlists[pl.id].tracks) == 1
+
     def test_cover_route_is_gated(self, client, service, logged_in) -> None:
         other = make_playlist(service, "Other", "someone-else", tracks=1)
         tid = other.tracks[0].id

@@ -63,6 +63,7 @@ beforeEach(() => {
     delete window.syncPlaylistEditModalFromFragment;
     delete window.bustPlaylistCoverImages;
     delete window.__spaPlaylistId;
+    delete window.refreshPlaylistView;
 });
 
 describe('constructor', () => {
@@ -102,6 +103,41 @@ describe('invalidateViewCache', () => {
         controller._viewCache.set('p1', { data: {}, ts: 1 });
         controller.invalidateViewCache(null);
         expect(controller._viewCache.size).toBe(0);
+    });
+});
+
+describe('reloadPlaylistView', () => {
+    it('refetches the current playlist and re-renders it', async () => {
+        const { controller, hub } = make_controller({ playlistId: 'p1' });
+        const data = { playlist_id: 'p1', tracks_payload: [{ id: 't2' }], html: '<div></div>' };
+        const fetch_mock = vi.fn(async () => json_response(data));
+        vi.stubGlobal('fetch', fetch_mock);
+        controller.applySpaPlaylist = vi.fn();
+        controller._viewCache.set('p1', { data: { stale: true }, ts: Date.now() });
+
+        const ok = await controller.reloadPlaylistView('p1');
+
+        expect(ok).toBe(true);
+        expect(fetch_mock.mock.calls[0][0]).toBe('/api/playlist/view?playlist_id=p1');
+        expect(controller.applySpaPlaylist).toHaveBeenCalledWith(data);
+        expect(controller._viewCache.get('p1').data).toBe(data);
+        expect(hub.audio.paused).toBe(true);
+    });
+
+    it('does nothing without a playlist id', async () => {
+        const { controller } = make_controller();
+        const fetch_mock = vi.fn();
+        vi.stubGlobal('fetch', fetch_mock);
+        expect(await controller.reloadPlaylistView('')).toBe(false);
+        expect(fetch_mock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the current view when the request fails', async () => {
+        const { controller } = make_controller({ playlistId: 'p1' });
+        vi.stubGlobal('fetch', vi.fn(async () => json_response({}, false)));
+        controller.applySpaPlaylist = vi.fn();
+        expect(await controller.reloadPlaylistView('p1')).toBe(false);
+        expect(controller.applySpaPlaylist).not.toHaveBeenCalled();
     });
 });
 
@@ -458,11 +494,15 @@ describe('attachHelpers', () => {
         expect(typeof window.applySpaPlaylist).toBe('function');
         expect(typeof window.applySpaHome).toBe('function');
         expect(typeof window.invalidatePlaylistViewCache).toBe('function');
+        expect(typeof window.refreshPlaylistView).toBe('function');
         window.refreshHomeView();
         expect(controller.home.render).toHaveBeenCalled();
         controller.invalidateViewCache = vi.fn();
         window.invalidatePlaylistViewCache('p1');
         expect(controller.invalidateViewCache).toHaveBeenCalledWith('p1');
+        controller.reloadPlaylistView = vi.fn();
+        window.refreshPlaylistView('p1');
+        expect(controller.reloadPlaylistView).toHaveBeenCalledWith('p1');
         expect(hub.isHomeView).toBe(true);
     });
 });

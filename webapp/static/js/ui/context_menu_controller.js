@@ -313,11 +313,18 @@ export class PlaylistContextMenuController {
             }, false);
             mkBtn('Delete', () => {
                 if (!confirm('Remove this song from the playlist? The audio file on disk will be deleted if present.')) return;
-                const f = document.createElement('form');
-                f.method = 'post';
-                f.action = '/playlists/' + encodeURIComponent(payload.playlistId) + '/tracks/' + encodeURIComponent(payload.trackId) + '/delete';
-                document.body.appendChild(f);
-                f.submit();
+                const pid = String(payload.playlistId);
+                const url = '/playlists/' + encodeURIComponent(pid) + '/tracks/' + encodeURIComponent(payload.trackId) + '/delete';
+                fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'X-Spa-Request': '1' } })
+                    .then((r) => {
+                        if (r.ok && typeof window.refreshPlaylistView === 'function') {
+                            return window.refreshPlaylistView(pid);
+                        }
+                        window.location.href = '/?playlist_id=' + encodeURIComponent(pid);
+                    })
+                    .catch(() => {
+                        window.location.href = '/?playlist_id=' + encodeURIComponent(pid);
+                    });
             }, true);
         } else if (payload.type === 'mix_hit') {
             const hit = {
