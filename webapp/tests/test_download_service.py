@@ -305,7 +305,7 @@ class TestVariantResolution:
         t = make_track(status=DownloadStatus.queued, variants={"120": "hard/Song__120k.mp3"})
         t.media_relpath = "hard/Song__120k.mp3"
         pl.add_track(t)
-        service._settle_playable_statuses()
+        service._reconcile_track_statuses()
         assert t.status == DownloadStatus.done
 
     def test_settle_marks_downloading_track_with_playable_file_done(
@@ -315,7 +315,7 @@ class TestVariantResolution:
         pl = service.create_playlist("hard", owner_id="u1")
         t = make_track(status=DownloadStatus.downloading, variants={"120": "hard/Song__120k.mp3"})
         pl.add_track(t)
-        service._settle_playable_statuses()
+        service._reconcile_track_statuses()
         assert t.status == DownloadStatus.done
 
     def test_settle_leaves_queued_track_without_file(
@@ -324,7 +324,7 @@ class TestVariantResolution:
         pl = service.create_playlist("hard", owner_id="u1")
         t = make_track(status=DownloadStatus.queued)
         pl.add_track(t)
-        service._settle_playable_statuses()
+        service._reconcile_track_statuses()
         assert t.status == DownloadStatus.queued
 
     def test_settle_marks_error_track_with_playable_file_done(
@@ -335,7 +335,7 @@ class TestVariantResolution:
         t = make_track(status=DownloadStatus.error, variants={"120": "youtube/Song [abc]__120k.mp3"})
         t.error = "No audio file found under downloads/youtube after YouTube download."
         pl.add_track(t)
-        service._settle_playable_statuses()
+        service._reconcile_track_statuses()
         assert t.status == DownloadStatus.done
         assert t.error is None
 
@@ -345,16 +345,25 @@ class TestVariantResolution:
         pl = service.create_playlist("hard", owner_id="u1")
         t = make_track(status=DownloadStatus.error, variants={"192": "hard/missing.mp3"})
         pl.add_track(t)
-        service._settle_playable_statuses()
+        service._reconcile_track_statuses()
         assert t.status == DownloadStatus.error
 
-    def test_settle_leaves_done_track_with_missing_file(
+    def test_reconcile_flags_done_track_with_missing_recorded_file(
         self, service: DownloadService
     ) -> None:
         pl = service.create_playlist("hard", owner_id="u1")
         t = make_track(variants={"192": "hard/missing.mp3"})
         pl.add_track(t)
-        service._settle_playable_statuses()
+        service._reconcile_track_statuses()
+        assert t.status == DownloadStatus.error
+
+    def test_reconcile_leaves_done_track_without_recorded_media(
+        self, service: DownloadService
+    ) -> None:
+        pl = service.create_playlist("hard", owner_id="u1")
+        t = make_track()
+        pl.add_track(t)
+        service._reconcile_track_statuses()
         assert t.status == DownloadStatus.done
 
     def test_resolve_variant_relpath(self, service: DownloadService, temp_root: Path) -> None:

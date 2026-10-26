@@ -217,7 +217,7 @@ class DownloadService:
         self._sync_from_download_folders()
         self._reset_interrupted_downloads()
         self._reconcile_media_paths()
-        self._settle_playable_statuses()
+        self._reconcile_track_statuses()
 
         set_track_status_change_listener(self._invalidate_error_rows_cache)
 
@@ -591,19 +591,28 @@ class DownloadService:
         if changed:
             self._save_playlists()
 
-    def _settle_playable_statuses(self) -> None:
-        """Make status match disk: a playable row is done, whatever it claimed.
+    def _reconcile_track_statuses(self) -> None:
+        """Make status match disk in both directions.
 
-        The in-memory job queue is lost on restart, and ``_worker_main`` only
-        re-enqueues queued rows *without* a file. Without this, a row whose
-        download was interrupted keeps reporting ``queued`` forever even though
-        the track plays from an existing variant. The same applies to rows left
-        at ``error`` after a later job produced the file.
+        A playable row is done, whatever it claimed: the in-memory job queue is
+        lost on restart and ``_worker_main`` only re-enqueues queued rows
+        *without* a file, so an interrupted row would otherwise report
+        ``queued`` forever. Rows left at ``error`` after a later job produced
+        the file are settled the same way.
+
+        A done row whose recorded files are all gone is flipped to ``error`` so
+        it stops advertising audio that 404s. Rows with no recorded path at all
+        are left alone; hydration may still resolve those.
         """
         changed = False
         for pl in self.playlists.values():
             for track in pl.tracks:
                 if track.status == DownloadStatus.done:
+                    if self._track_has_recorded_media(track) and not self._track_has_resolved_file(track):
+                        pl.update_track_status(
+                            track.id, DownloadStatus.error, "Audio file is missing on disk."
+                        )
+                        changed = True
                     continue
                 if not self._track_has_resolved_file(track):
                     continue
@@ -611,6 +620,13 @@ class DownloadService:
                 changed = True
         if changed:
             self._save_playlists()
+
+    @staticmethod
+    def _track_has_recorded_media(track: Track) -> bool:
+        """True when the row points at a file (primary path or any variant)."""
+        if (track.media_relpath or "").strip():
+            return True
+        return any((rel or "").strip() for rel in (track.media_variants or {}).values())
 
     def _clear_stale_variant(self, track: Track, quality: str) -> None:
         """Drop a variant entry when its file is missing on disk."""
