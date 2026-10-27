@@ -72,9 +72,12 @@ export class PlaylistSessionController {
         this.queue.restore_manual_queue_from_storage();
         this.transport.shuffle.syncShuffleOrderWithPlaylist();
         // The account is the source of truth for play counts; mirror it back
-        // into localStorage before the home view reads the numbers.
-        const synced = await PlaylistPlayLog.sync();
-        await this.transport.likes.refresh_liked_keys_from_server();
+        // into localStorage before the home view reads the numbers. Fetch the
+        // liked keys in parallel so boot does not wait on two round trips.
+        const [synced] = await Promise.all([
+            PlaylistPlayLog.sync(),
+            this.transport.likes.refresh_liked_keys_from_server(),
+        ]);
         this.transport.likes.update_like_button_ui();
         if (this.state.hub.queueVisible) this.queue.render_queue_list();
         if (synced && this.state.hub.isHomeView) this.home.render();
