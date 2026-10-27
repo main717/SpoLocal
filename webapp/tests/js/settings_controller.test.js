@@ -365,6 +365,7 @@ describe('parallel downloads', () => {
             <input type="range" id="settings-workers" min="1" max="8" step="1" value="2">
             <span id="settings-workers-value">2</span>
             <button type="button" id="settings-workers-reset"></button>
+            <p id="settings-workers-warning" class="hidden"></p>
         `;
         document.getElementById('settings-modal').appendChild(wrap);
     }
@@ -444,5 +445,41 @@ describe('parallel downloads', () => {
         hub.settingsWorkers.dispatchEvent(new Event('change'));
         await expect(controller.save_worker_count()).resolves.toBeUndefined();
         expect(hub.settingsWorkersValue.textContent).toBe('4');
+    });
+
+    it('warns when the chosen count exceeds what the server hardware handles', async () => {
+        mount_workers();
+        vi.stubGlobal('fetch', vi.fn(async () => json_response({
+            workers: 3,
+            hardware: { cpu_cores: 4, memory_bytes: 6 * 1073741824, recommended_max: 3 },
+        })));
+        const { controller, hub } = make_controller();
+        controller.init();
+        controller.open();
+        await flush();
+
+        const warning = document.getElementById('settings-workers-warning');
+        expect(warning.classList.contains('hidden')).toBe(true);
+
+        hub.settingsWorkers.value = '6';
+        hub.settingsWorkers.dispatchEvent(new Event('input'));
+
+        expect(warning.classList.contains('hidden')).toBe(false);
+        expect(warning.textContent).toBe(
+            '6 at once will compete with playback on this box (4 cores, 6.0 GB RAM). 3 or fewer is safer.',
+        );
+
+        hub.settingsWorkers.value = '3';
+        hub.settingsWorkers.dispatchEvent(new Event('input'));
+        expect(warning.classList.contains('hidden')).toBe(true);
+    });
+
+    it('stays quiet until the server reports its hardware', () => {
+        mount_workers();
+        const { controller, hub } = make_controller();
+        controller.init();
+        hub.settingsWorkers.value = '8';
+        hub.settingsWorkers.dispatchEvent(new Event('input'));
+        expect(document.getElementById('settings-workers-warning').classList.contains('hidden')).toBe(true);
     });
 });

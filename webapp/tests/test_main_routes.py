@@ -650,7 +650,10 @@ class TestDownloadWorkers:
     def test_get_reports_the_current_count(self, client, service, logged_in, monkeypatch) -> None:
         monkeypatch.setattr(service, "_spawn_workers", lambda n: None)
         service.set_worker_count(3)
-        assert client.get("/api/settings/download-workers").json() == {"workers": 3}
+        body = client.get("/api/settings/download-workers").json()
+        assert body["workers"] == 3
+        assert body["hardware"]["cpu_cores"] >= 1
+        assert 1 <= body["hardware"]["recommended_max"] <= 8
 
     def test_post_updates_and_persists(self, client, service, logged_in, monkeypatch) -> None:
         monkeypatch.setattr(service, "_spawn_workers", lambda n: None)
@@ -658,9 +661,28 @@ class TestDownloadWorkers:
         assert resp.status_code == 200, resp.text
         assert resp.json() == {"workers": 6}
         assert service.worker_count() == 6
-        assert client.get("/api/settings/download-workers").json() == {"workers": 6}
+        assert client.get("/api/settings/download-workers").json()["workers"] == 6
 
     @pytest.mark.parametrize("workers", [0, 9])
     def test_out_of_range_is_rejected(self, client, logged_in, workers) -> None:
         resp = client.post("/api/settings/download-workers", json={"workers": workers})
         assert resp.status_code == 422
+
+
+class TestDownloadHardware:
+    def test_recommendation_leaves_a_core_free(self, main_module, monkeypatch) -> None:
+        monkeypatch.setattr(main_module.os, "cpu_count", lambda: 4)
+        monkeypatch.setattr(main_module.os, "getloadavg", lambda: (0.2, 0.2, 0.2))
+        hw = main_module._download_hardware()
+        assert hw["cpu_cores"] == 4
+        assert hw["recommended_max"] == 3
+
+    def test_high_load_lowers_the_recommendation(self, main_module, monkeypatch) -> None:
+        monkeypatch.setattr(main_module.os, "cpu_count", lambda: 4)
+        monkeypatch.setattr(main_module.os, "getloadavg", lambda: (4.0, 4.0, 4.0))
+        assert main_module._download_hardware()["recommended_max"] == 2
+
+    def test_single_core_never_recommends_zero(self, main_module, monkeypatch) -> None:
+        monkeypatch.setattr(main_module.os, "cpu_count", lambda: 1)
+        monkeypatch.setattr(main_module.os, "getloadavg", lambda: (5.0, 5.0, 5.0))
+        assert main_module._download_hardware()["recommended_max"] == 1

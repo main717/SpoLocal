@@ -203,6 +203,7 @@
                         <button type="button" id="settings-workers-reset" class="text-[10px] font-semibold text-[#B3B3B3] hover:text-white">Reset</button>
                         <span class="text-[10px] text-[#727272]">8</span>
                     </div>
+                    <p id="settings-workers-warning" class="hidden text-[11px] text-[#E8B84B] mt-2"></p>
                 </div>
                 <div class="settings-section">
                     <h3 class="text-sm font-semibold text-white mb-1">Rebuild library</h3>
@@ -747,7 +748,7 @@
         window.butterchurn = butterchurn && butterchurn.default ? butterchurn.default : butterchurn;
         window.dispatchEvent(new Event('spolocal-butterchurn-ready'));
     </script>
-        <script type="module" src="/static/js/PlaylistSession.mjs?v=141"></script>
+        <script type="module" src="/static/js/PlaylistSession.mjs?v=142"></script>
     <script type="module" src="/static/pwa/pwa-entry.js"></script>
     <script src="/static/js/app_shell.js?v=52" defer></script>
 </body>

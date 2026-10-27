@@ -880,10 +880,56 @@ class DownloadWorkersBody(BaseModel):
     workers: int = Field(..., ge=1, le=8)
 
 
+def _download_hardware() -> dict[str, Any]:
+    """Headroom estimate for concurrent downloads on the box running SpoLocal.
+
+    One core and roughly 1 GB stay free for playback, the web app, and the OS;
+    each worker peaks around 0.6 GB while ffmpeg encodes.
+    """
+    cores = os.cpu_count() or 1
+    memory_bytes = 0
+    try:
+        with open("/proc/meminfo", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("MemTotal:"):
+                    memory_bytes = int(line.split()[1]) * 1024
+                    break
+    except (OSError, ValueError):
+        memory_bytes = 0
+    for limit_file in (
+        "/sys/fs/cgroup/memory.max",
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+    ):
+        try:
+            raw = Path(limit_file).read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if raw.isdigit():
+            limit = int(raw)
+            if limit > 0 and (memory_bytes == 0 or limit < memory_bytes):
+                memory_bytes = limit
+    try:
+        load_1m = os.getloadavg()[0]
+    except OSError:
+        load_1m = 0.0
+    recommended = max(1, cores - 1)
+    if memory_bytes:
+        usable_gb = memory_bytes / (1024 ** 3) - 1.0
+        recommended = min(recommended, max(1, int(usable_gb / 0.6)))
+    if load_1m > cores * 0.75:
+        recommended = max(1, recommended - 1)
+    return {
+        "cpu_cores": cores,
+        "memory_bytes": memory_bytes,
+        "load_1m": round(load_1m, 2),
+        "recommended_max": min(recommended, 8),
+    }
+
+
 @app.get("/api/settings/download-workers")
 async def api_get_download_workers(request: Request):
     _owner_id(request, required=True)
-    return JSONResponse({"workers": service.worker_count()})
+    return JSONResponse({"workers": service.worker_count(), "hardware": _download_hardware()})
 
 
 @app.post("/api/settings/download-workers")

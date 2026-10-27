@@ -11,7 +11,7 @@ import { PlaylistDownloadController } from '../services/download_controller.js?v
 import { PlaylistColumnResizer } from '../ui/column_resizer.js';
 import { PlaylistHomeViewController } from './home_view_controller.js?v=95';
 import { PlaylistPlayLog } from './play_log.js?v=2';
-import { SettingsController } from '../ui/settings_controller.js?v=4';
+import { SettingsController } from '../ui/settings_controller.js?v=5';
 import { AccountController } from '../ui/account_controller.js?v=3';
 import { TrackInfoController } from '../ui/track_info_controller.js';
 import { TrackEditController } from '../ui/track_edit_controller.js';

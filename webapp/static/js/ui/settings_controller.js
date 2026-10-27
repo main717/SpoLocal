@@ -10,6 +10,7 @@ export class SettingsController {
         /** @type {import('../services/download_controller.js').PlaylistDownloadController|null} */
         this.download = null;
         this._workers_timer = null;
+        this._workers_hardware = null;
     }
 
     setCrossRefs(transport, download) {
@@ -36,6 +37,7 @@ export class SettingsController {
         hub.settingsWorkers = document.getElementById('settings-workers');
         hub.settingsWorkersValue = document.getElementById('settings-workers-value');
         hub.settingsWorkersReset = document.getElementById('settings-workers-reset');
+        hub.settingsWorkersWarning = document.getElementById('settings-workers-warning');
 
         if (hub.settingsOpenBtn) {
             hub.settingsOpenBtn.addEventListener('click', () => this.open());
@@ -192,6 +194,27 @@ export class SettingsController {
         const n = this._clamp_workers(value);
         if (hub.settingsWorkers) hub.settingsWorkers.value = String(n);
         if (hub.settingsWorkersValue) hub.settingsWorkersValue.textContent = String(n);
+        this._update_worker_warning();
+    }
+
+    /** Warn when the chosen count is above what the server's hardware handles well. */
+    _update_worker_warning() {
+        const hub = this.state.hub;
+        const el = hub.settingsWorkersWarning;
+        if (!el) return;
+        const hw = this._workers_hardware;
+        const n = this._clamp_workers(hub.settingsWorkers ? hub.settingsWorkers.value : 0);
+        if (!hw || !hw.recommended_max || n <= hw.recommended_max) {
+            el.textContent = '';
+            el.classList.add('hidden');
+            return;
+        }
+        const cores = hw.cpu_cores || 1;
+        const gb = hw.memory_bytes ? (hw.memory_bytes / 1073741824).toFixed(1) : '';
+        const spec = gb ? cores + ' cores, ' + gb + ' GB RAM' : cores + ' cores';
+        el.textContent = n + ' at once will compete with playback on this box (' + spec + '). '
+            + hw.recommended_max + ' or fewer is safer.';
+        el.classList.remove('hidden');
     }
 
     _schedule_worker_save() {
@@ -207,6 +230,7 @@ export class SettingsController {
             const r = await fetch('/api/settings/download-workers', { credentials: 'same-origin' });
             if (!r.ok) return;
             const data = await r.json();
+            this._workers_hardware = data.hardware || null;
             this._apply_worker_count(data.workers);
         } catch (e) {
             /* keep the slider as-is */
