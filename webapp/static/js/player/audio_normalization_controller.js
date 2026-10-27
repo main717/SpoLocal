@@ -11,6 +11,7 @@ export class AudioNormalizationController {
         this.gain_node = null;
         this.user_volume = 1;
         this.track_gain_db = 0;
+        this.track_offset_db = 0;
         this.enabled = true;
         this._wired = false;
         this._play_bound = false;
@@ -149,6 +150,13 @@ export class AudioNormalizationController {
         this._sync_gain(0.4);
     }
 
+    /** Manual per-song or per-album tweak, applied on top of the measured gain. */
+    set_track_offset_db(db) {
+        const n = Number(db);
+        this.track_offset_db = Number.isFinite(n) ? n : 0;
+        this._sync_gain(0.4);
+    }
+
     set_enabled(on) {
         this.enabled = !!on;
         this._sync_gain();
@@ -161,7 +169,7 @@ export class AudioNormalizationController {
         }
         const prefs = window.SpolocalNormalizationPrefs;
         const use_norm = this.enabled && prefs && prefs.enabled();
-        const norm_lin = use_norm ? Math.pow(10, this.track_gain_db / 20) : 1;
+        const norm_lin = use_norm ? Math.pow(10, (this.track_gain_db + this.track_offset_db) / 20) : 1;
         const v = Math.max(0, Math.min(4, this.user_volume * norm_lin));
         const param = this.gain_node.gain;
         const ctx = this.ctx;

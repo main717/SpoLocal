@@ -376,6 +376,8 @@ export class PlaybackQualityController {
         const hub = this.state.hub;
         const norm = hub.audioNormalization;
         if (!norm) return;
+        // Manual per-song/per-album tweak, applied on top of the measured gain.
+        norm.set_track_offset_db(track && track.loudness_offset_db != null ? track.loudness_offset_db : 0);
         const stream_vid = this._current_stream_vid();
         if (stream_vid) {
             await this.apply_stream_loudness(stream_vid);
@@ -401,6 +403,10 @@ export class PlaybackQualityController {
                 if (r.ok) {
                     const j = await r.json();
                     db = j.loudness_gain_db;
+                    if (j.loudness_offset_db != null) {
+                        track.loudness_offset_db = j.loudness_offset_db;
+                        norm.set_track_offset_db(j.loudness_offset_db);
+                    }
                     if (db != null) {
                         track.loudness_gain_db = db;
                         this.patchTrackInHub({ id: tid, loudness_gain_db: db });
@@ -434,6 +440,10 @@ export class PlaybackQualityController {
                 const j = await r.json();
                 if (j.loudness_gain_db != null) {
                     track.loudness_gain_db = j.loudness_gain_db;
+                    if (j.loudness_offset_db != null) {
+                        track.loudness_offset_db = j.loudness_offset_db;
+                        norm.set_track_offset_db(j.loudness_offset_db);
+                    }
                     this.patchTrackInHub({ id: tid, loudness_gain_db: j.loudness_gain_db });
                     if (this.isCurrentTrackFor(tid)) {
                         norm.set_track_gain_db(j.loudness_gain_db);

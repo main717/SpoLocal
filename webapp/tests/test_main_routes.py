@@ -552,3 +552,91 @@ class TestShareLink:
         token = client.post(f"/api/playlists/{pl.id}/share").json()["token"]
         assert client.delete(f"/api/playlists/{pl.id}/share").status_code == 200
         assert client.get(f"/share/{token}").status_code == 404
+
+
+class TestLoudnessOffset:
+    def test_guest_cannot_set_an_offset(self, client, service) -> None:
+        pl = make_playlist(service, "Mine", "u1", tracks=1)
+        resp = client.post(
+            f"/api/playlists/{pl.id}/tracks/{pl.tracks[0].id}/loudness-offset",
+            json={"offset_db": 2, "scope": "track"},
+        )
+        assert resp.status_code == 401
+
+    def test_track_scope_updates_only_that_song(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=2)
+        pl.tracks[0].album = "Album"
+        pl.tracks[1].album = "Album"
+        tid = pl.tracks[0].id
+        resp = client.post(
+            f"/api/playlists/{pl.id}/tracks/{tid}/loudness-offset",
+            json={"offset_db": 3.5, "scope": "track"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"ok": True, "offset_db": 3.5, "updated": [tid]}
+        assert pl.tracks[0].loudness_offset_db == 3.5
+        assert pl.tracks[1].loudness_offset_db == 0.0
+
+    def test_album_scope_updates_every_track_of_the_album(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=2)
+        pl.tracks[0].album = "Album"
+        pl.tracks[1].album = "Album"
+        tid = pl.tracks[0].id
+        resp = client.post(
+            f"/api/playlists/{pl.id}/tracks/{tid}/loudness-offset",
+            json={"offset_db": -2, "scope": "album"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert sorted(resp.json()["updated"]) == sorted(t.id for t in pl.tracks)
+        assert [t.loudness_offset_db for t in pl.tracks] == [-2.0, -2.0]
+
+    def test_album_scope_without_an_album_is_400(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=1)
+        resp = client.post(
+            f"/api/playlists/{pl.id}/tracks/{pl.tracks[0].id}/loudness-offset",
+            json={"offset_db": 1, "scope": "album"},
+        )
+        assert resp.status_code == 400
+
+    def test_out_of_range_offset_is_rejected(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=1)
+        resp = client.post(
+            f"/api/playlists/{pl.id}/tracks/{pl.tracks[0].id}/loudness-offset",
+            json={"offset_db": 40, "scope": "track"},
+        )
+        assert resp.status_code == 422
+
+    def test_non_owner_gets_404(self, client, service, logged_in) -> None:
+        other = make_playlist(service, "Other", "someone-else", tracks=1)
+        resp = client.post(
+            f"/api/playlists/{other.id}/tracks/{other.tracks[0].id}/loudness-offset",
+            json={"offset_db": 1, "scope": "track"},
+        )
+        assert resp.status_code == 404
+
+    def test_offset_is_exposed_in_the_track_payload(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=1)
+        tid = pl.tracks[0].id
+        client.post(
+            f"/api/playlists/{pl.id}/tracks/{tid}/loudness-offset",
+            json={"offset_db": 2.5, "scope": "track"},
+        )
+        rows = client.get(f"/api/playlist/state?playlist_id={pl.id}").json()["tracks_payload"]
+        assert rows[0]["loudness_offset_db"] == 2.5
+
+    def test_gain_endpoint_reports_the_offset(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=1)
+        tid = pl.tracks[0].id
+        pl.tracks[0].loudness_gain_db = -7.0
+        client.post(
+            f"/api/playlists/{pl.id}/tracks/{tid}/loudness-offset",
+            json={"offset_db": 1.5, "scope": "track"},
+        )
+        body = client.get(f"/api/playlists/{pl.id}/tracks/{tid}/loudness-gain").json()
+        assert body == {"loudness_gain_db": -7.0, "loudness_offset_db": 1.5}

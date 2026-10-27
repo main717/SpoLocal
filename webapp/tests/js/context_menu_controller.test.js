@@ -426,6 +426,7 @@ describe('buildTrackMenuPayload', () => {
             title: 'Title',
             artist: 'Artist',
             album: 'Album',
+            loudnessOffsetDb: 0,
         });
     });
 
@@ -511,8 +512,67 @@ describe('openContextMenu for tracks', () => {
             'Save to computer',
             'Edit details',
             'Song info',
+            'Loudness offset...',
+            'Album loudness offset...',
             'Delete',
         ]);
+    });
+
+    it('posts a song loudness offset', async () => {
+        const { hub, items } = make_hub({ tracks: [library_track()] });
+        vi.stubGlobal('prompt', vi.fn(() => '+2,5'));
+        const fetch_mock = vi.fn(async () => ({ ok: true, json: async () => ({ offset_db: 2.5, updated: ['t1'] }) }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const controller = new PlaylistContextMenuController({ hub });
+        controller.openContextMenu(10, 20, track_payload());
+        find_button(items, 'Loudness offset...').click();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        expect(fetch_mock.mock.calls[0][0]).toBe('/api/playlists/p1/tracks/t1/loudness-offset');
+        expect(fetch_mock.mock.calls[0][1].method).toBe('POST');
+        expect(JSON.parse(fetch_mock.mock.calls[0][1].body)).toEqual({ offset_db: 2.5, scope: 'track' });
+    });
+
+    it('posts album scope for the album entry', async () => {
+        const { hub, items } = make_hub({ tracks: [library_track()] });
+        vi.stubGlobal('prompt', vi.fn(() => '-3'));
+        const fetch_mock = vi.fn(async () => ({ ok: true, json: async () => ({ offset_db: -3, updated: ['t1'] }) }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const controller = new PlaylistContextMenuController({ hub });
+        controller.openContextMenu(10, 20, track_payload());
+        find_button(items, 'Album loudness offset...').click();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        expect(JSON.parse(fetch_mock.mock.calls[0][1].body)).toEqual({ offset_db: -3, scope: 'album' });
+    });
+
+    it('hides the album entry when the track has no album', () => {
+        const { hub, items } = make_hub({ tracks: [library_track()] });
+        const controller = new PlaylistContextMenuController({ hub });
+        controller.openContextMenu(10, 20, track_payload({ album: '' }));
+        expect(button_labels(items)).toContain('Loudness offset...');
+        expect(button_labels(items)).not.toContain('Album loudness offset...');
+    });
+
+    it('rejects an out-of-range offset without posting', () => {
+        const { hub, items } = make_hub({ tracks: [library_track()] });
+        vi.stubGlobal('prompt', vi.fn(() => '40'));
+        const alert_mock = vi.fn();
+        vi.stubGlobal('alert', alert_mock);
+        const fetch_mock = vi.fn();
+        vi.stubGlobal('fetch', fetch_mock);
+        const controller = new PlaylistContextMenuController({ hub });
+        controller.openContextMenu(10, 20, track_payload());
+        find_button(items, 'Loudness offset...').click();
+        expect(fetch_mock).not.toHaveBeenCalled();
+        expect(alert_mock).toHaveBeenCalled();
+    });
+
+    it('applies a saved offset to the playing track', () => {
+        const { hub } = make_hub({ tracks: [library_track()], currentTrackId: 't1' });
+        hub.audioNormalization = { set_track_offset_db: vi.fn() };
+        const controller = new PlaylistContextMenuController({ hub });
+        controller.applyLoudnessOffset({ offset_db: -3, updated: ['t1'] });
+        expect(hub.tracks[0].loudness_offset_db).toBe(-3);
+        expect(hub.audioNormalization.set_track_offset_db).toHaveBeenCalledWith(-3);
     });
 
     it('queues the track when Add to queue is clicked', () => {

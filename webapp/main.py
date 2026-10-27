@@ -182,6 +182,7 @@ def _track_payload_row(t: Track, *, playback_quality: Optional[str] = None) -> d
         "youtube_video_id": t.resolved_youtube_video_id(),
         "error": t.error or "",
         "loudness_gain_db": t.loudness_gain_db,
+        "loudness_offset_db": t.loudness_offset_db,
     }
 
 
@@ -749,6 +750,11 @@ class TrackDetailsBody(BaseModel):
     album: str = Field("", max_length=300)
 
 
+class LoudnessOffsetBody(BaseModel):
+    offset_db: float = Field(..., ge=-12, le=12)
+    scope: str = Field("track", pattern="^(track|album)$")
+
+
 @app.post("/api/track/like")
 async def api_track_like(body: TrackLikeBody, request: Request):
     uid = _owner_id(request, required=True)
@@ -831,8 +837,25 @@ async def api_track_loudness_gain(playlist_id: str, track_id: str, request: Requ
                 pass
 
         asyncio.get_running_loop().create_task(_analyze_in_background())
-        return JSONResponse({"loudness_gain_db": None, "pending": True})
-    return JSONResponse({"loudness_gain_db": track.loudness_gain_db})
+        return JSONResponse({"loudness_gain_db": None, "pending": True, "loudness_offset_db": track.loudness_offset_db})
+    return JSONResponse({"loudness_gain_db": track.loudness_gain_db, "loudness_offset_db": track.loudness_offset_db})
+
+
+@app.post("/api/playlists/{playlist_id}/tracks/{track_id}/loudness-offset")
+async def api_track_loudness_offset(
+    playlist_id: str, track_id: str, body: LoudnessOffsetBody, request: Request
+):
+    """Store a manual gain tweak for one song, or for every track of its album."""
+    pl = _owned_playlist_or_404(request, playlist_id)
+    track = pl.get_track(track_id.strip())
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if body.scope == "album" and not (track.album or "").strip():
+        raise HTTPException(status_code=400, detail="This track has no album")
+    result = service.set_loudness_offset(pl.id, track.id, body.offset_db, body.scope)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return JSONResponse({"ok": True, **result})
 
 
 @app.get("/api/playlist/state")

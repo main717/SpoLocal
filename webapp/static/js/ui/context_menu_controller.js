@@ -213,7 +213,54 @@ export class PlaylistContextMenuController {
             title: (t && t.title) || (row ? row.getAttribute('data-title') : '') || (snap && snap.title) || '',
             artist: (t && t.artist) || (row ? row.getAttribute('data-artist') : '') || (snap && snap.artist) || '',
             album: (t && t.album != null ? String(t.album) : '') || (row ? row.getAttribute('data-album') : '') || (snap && snap.album ? String(snap.album) : '') || '',
+            loudnessOffsetDb: t && t.loudness_offset_db != null ? Number(t.loudness_offset_db) : 0,
         };
+    }
+
+    promptLoudnessOffset(payload, scope) {
+        const current = Number(payload.loudnessOffsetDb || 0);
+        const label = scope === 'album'
+            ? 'Loudness offset for this album in dB (-12 to +12)'
+            : 'Loudness offset for this song in dB (-12 to +12)';
+        const raw = prompt(label, String(current));
+        if (raw === null) return;
+        const value = Number(String(raw).replace(',', '.').replace(/^\+/, '').trim());
+        if (!Number.isFinite(value) || value < -12 || value > 12) {
+            alert('Enter a number between -12 and 12.');
+            return;
+        }
+        this.saveLoudnessOffset(String(payload.playlistId || ''), String(payload.trackId || ''), value, scope);
+    }
+
+    saveLoudnessOffset(playlist_id, track_id, offset_db, scope) {
+        fetch('/api/playlists/' + encodeURIComponent(playlist_id) + '/tracks/'
+            + encodeURIComponent(track_id) + '/loudness-offset', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ offset_db: offset_db, scope: scope }),
+        })
+            .then((r) => {
+                if (!r.ok) throw new Error('offset failed');
+                return r.json();
+            })
+            .then((data) => this.applyLoudnessOffset(data))
+            .catch(() => alert('Could not save the loudness offset.'));
+    }
+
+    applyLoudnessOffset(data) {
+        const hub = this.state.hub;
+        const ids = Array.isArray(data && data.updated) ? data.updated.map(String) : [];
+        if (!ids.length) return;
+        const offset = Number(data.offset_db) || 0;
+        (hub.tracks || []).forEach((t) => {
+            if (ids.indexOf(String(t.id)) !== -1) t.loudness_offset_db = offset;
+        });
+        // The playing track keeps its measured gain; only the offset changes.
+        if (hub.currentTrackId && ids.indexOf(String(hub.currentTrackId)) !== -1
+            && hub.audioNormalization && typeof hub.audioNormalization.set_track_offset_db === 'function') {
+            hub.audioNormalization.set_track_offset_db(offset);
+        }
     }
 
     openContextMenu(clientX, clientY, payload) {
@@ -311,6 +358,16 @@ export class PlaylistContextMenuController {
                     this.trackInfo.open(String(payload.playlistId), String(payload.trackId));
                 }
             }, false);
+            if (payload.playlistId && payload.trackId) {
+                mkBtn('Loudness offset...', () => {
+                    this.promptLoudnessOffset(payload, 'track');
+                }, false);
+                if (payload.album) {
+                    mkBtn('Album loudness offset...', () => {
+                        this.promptLoudnessOffset(payload, 'album');
+                    }, false);
+                }
+            }
             mkBtn('Delete', () => {
                 if (!confirm('Remove this song from the playlist? The audio file on disk will be deleted if present.')) return;
                 const pid = String(payload.playlistId);

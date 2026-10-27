@@ -685,3 +685,49 @@ class TestShareToken:
         service.set_playlist_share_token(pl.id, None)
         assert service.get_playlist_by_share_token("tok123") is None
         assert service.get_playlist_by_share_token("") is None
+
+
+class TestLoudnessOffset:
+    def test_defaults_to_neutral(self) -> None:
+        track = _track_from_dict({"id": "t1", "title": "Song", "artist": "Artist"})
+        assert track.loudness_offset_db == 0.0
+
+    def test_track_scope_only_touches_that_track(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        a = Track.create("A", "Artist")
+        a.album = "Album"
+        b = Track.create("B", "Artist")
+        b.album = "Album"
+        pl.add_track(a)
+        pl.add_track(b)
+        service.set_loudness_offset(pl.id, a.id, 3.0, "track")
+        assert a.loudness_offset_db == 3.0
+        assert b.loudness_offset_db == 0.0
+
+    def test_album_scope_updates_the_whole_album(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        a = Track.create("A", "Artist")
+        a.album = "Album"
+        b = Track.create("B", "Artist")
+        b.album = "album"
+        c = Track.create("C", "Artist")
+        c.album = "Other"
+        for t in (a, b, c):
+            pl.add_track(t)
+        result = service.set_loudness_offset(pl.id, a.id, -2.5, "album")
+        assert result == {"offset_db": -2.5, "updated": [a.id, b.id]}
+        assert c.loudness_offset_db == 0.0
+
+    def test_offset_round_trips_through_disk(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        track = Track.create("Song", "Artist")
+        pl.add_track(track)
+        service.set_loudness_offset(pl.id, track.id, 4.5, "track")
+        reloaded = _playlist_from_dict(
+            json.loads(service._data_file().read_text(encoding="utf-8"))[pl.id]
+        )
+        assert reloaded.tracks[0].loudness_offset_db == 4.5
+
+    def test_unknown_track_returns_none(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        assert service.set_loudness_offset(pl.id, "nope", 1.0) is None

@@ -129,6 +129,7 @@ def _track_from_dict(raw: dict) -> Track:
     data.setdefault("youtube_video_id", None)
     data.setdefault("album", None)
     data.setdefault("loudness_gain_db", None)
+    data.setdefault("loudness_offset_db", 0.0)
     data.setdefault("liked_source_playlist_id", None)
     data.setdefault("liked_source_track_id", None)
     data.setdefault("media_source_playlist_id", None)
@@ -305,6 +306,7 @@ class DownloadService:
                             "youtube_video_id": t.youtube_video_id,
                             "album": t.album,
                             "loudness_gain_db": t.loudness_gain_db,
+                            "loudness_offset_db": t.loudness_offset_db,
                             "liked_source_playlist_id": t.liked_source_playlist_id,
                             "liked_source_track_id": t.liked_source_track_id,
                             "media_source_playlist_id": t.media_source_playlist_id,
@@ -1113,6 +1115,27 @@ class DownloadService:
             "artist": artist_s,
             "album": album_s,
         }
+
+    def set_loudness_offset(
+        self, playlist_id: str, track_id: str, offset_db: float, scope: str = "track"
+    ) -> Optional[dict]:
+        """Store a manual gain tweak for one track, or every track of its album."""
+        pl = self.get_playlist(playlist_id.strip())
+        if not pl:
+            return None
+        track = pl.get_track(track_id.strip())
+        if not track:
+            return None
+        offset = round(float(offset_db), 1)
+        album = (track.album or "").strip().casefold()
+        updated: List[str] = []
+        for row in pl.tracks:
+            same_album = bool(album) and (row.album or "").strip().casefold() == album
+            if row.id == track.id or (scope == "album" and same_album):
+                row.loudness_offset_db = offset
+                updated.append(row.id)
+        self._save_playlists()
+        return {"offset_db": offset, "updated": updated}
 
     def _resolve_variant_relpath(self, track: Track, quality: str) -> Optional[str]:
         """Find on-disk file for a quality variant (``__64k.mp3`` suffix + video id)."""

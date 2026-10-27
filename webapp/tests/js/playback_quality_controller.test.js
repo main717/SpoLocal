@@ -210,7 +210,7 @@ describe('onPlaybackQualityChanged', () => {
 
 describe('stream loudness', () => {
     function makeStreamController(overrides = {}) {
-        const norm = { wire: vi.fn(), set_track_gain_db: vi.fn() };
+        const norm = { wire: vi.fn(), set_track_gain_db: vi.fn(), set_track_offset_db: vi.fn() };
         const { controller, hub, transport } = makeController({
             hub: { audioNormalization: norm, ...overrides.hub },
             transport: {
@@ -364,6 +364,28 @@ describe('stream loudness', () => {
 
         expect(apply).toHaveBeenCalledWith('abc');
         expect(norm.set_track_gain_db).not.toHaveBeenCalled();
+    });
+
+    it('applies the manual offset before routing to the stream path', async () => {
+        const { controller, hub, norm } = makeStreamController();
+        hub.searchStreamActive = true;
+        hub.searchStreamHit = { video_id: 'abc' };
+        vi.spyOn(controller, 'apply_stream_loudness').mockResolvedValue();
+
+        await controller.apply_track_loudness({ id: 't1', loudness_offset_db: -2.5 }, 'p1');
+
+        expect(norm.set_track_offset_db).toHaveBeenCalledWith(-2.5);
+    });
+
+    it('resets the offset to neutral when the track has none', async () => {
+        const { controller, hub, norm } = makeStreamController();
+        hub.searchStreamActive = true;
+        hub.searchStreamHit = { video_id: 'abc' };
+        vi.spyOn(controller, 'apply_stream_loudness').mockResolvedValue();
+
+        await controller.apply_track_loudness({ id: 't1' }, 'p1');
+
+        expect(norm.set_track_offset_db).toHaveBeenCalledWith(0);
     });
 });
 
