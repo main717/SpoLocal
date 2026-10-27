@@ -896,6 +896,38 @@ body { background: #121212; color: #fff; }
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.home-storage {
+    border-radius: 0.5rem;
+    background: #181818;
+    padding: 0.75rem 0.875rem;
+}
+.home-storage-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+.home-storage-size {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+}
+.home-storage-bar {
+    height: 6px;
+    border-radius: 999px;
+    background: #3E3E3E;
+    overflow: hidden;
+    margin: 0.5rem 0 0.375rem;
+}
+.home-storage-bar span {
+    display: block;
+    height: 100%;
+    width: 0;
+    border-radius: 999px;
+    background: #1DB954;
+    transition: width 0.3s ease;
+}
 .home-story-track {
     display: flex;
     gap: 0.75rem;

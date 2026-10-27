@@ -458,3 +458,29 @@ class TestPlaylistRecommendations:
         assert [h["video_id"] for h in resp.json()] == ["dQw4w9WgXcQ"]
         assert seen["pick_artists"] == ["Artist 0", "Artist 1", "Artist 2"]
         assert seen["mix_artists"] == ["Artist 0", "Artist 1", "Artist 2"]
+
+
+class TestStorage:
+    def test_reports_media_size_and_disk_space(self, client, temp_root, monkeypatch, main_module) -> None:
+        media = temp_root / "downloads" / "youtube"
+        media.mkdir(parents=True, exist_ok=True)
+        (media / "a__64k.webm").write_bytes(b"x" * 100)
+        (media / "a__192k.opus").write_bytes(b"y" * 50)
+        (media / "a__64k.lrc").write_bytes(b"z" * 10)
+        main_module._storage_cache["payload"] = None
+        payload = client.get("/api/storage").json()
+        assert payload["media_bytes"] == 160
+        assert payload["media_files"] == 3
+        assert payload["by_quality"]["64"] == 110
+        assert payload["by_quality"]["192"] == 50
+        assert payload["free_bytes"] > 0
+        assert payload["total_bytes"] >= payload["free_bytes"]
+
+    def test_is_cached_for_a_minute(self, client, temp_root, main_module) -> None:
+        main_module._storage_cache["payload"] = None
+        first = client.get("/api/storage").json()
+        media = temp_root / "downloads" / "youtube"
+        media.mkdir(parents=True, exist_ok=True)
+        (media / "b__64k.webm").write_bytes(b"x" * 999)
+        second = client.get("/api/storage").json()
+        assert second["media_bytes"] == first["media_bytes"]

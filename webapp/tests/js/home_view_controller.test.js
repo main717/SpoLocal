@@ -262,3 +262,55 @@ describe('random toggle', () => {
         expect(transport.play_random_from_library).toHaveBeenCalled();
     });
 });
+
+describe('storage panel', () => {
+    it('formats bytes with a sensible unit', () => {
+        expect(PlaylistHomeViewController.format_bytes(0)).toBe('0 B');
+        expect(PlaylistHomeViewController.format_bytes(999)).toBe('999 B');
+        expect(PlaylistHomeViewController.format_bytes(1536)).toBe('1.5 KB');
+        expect(PlaylistHomeViewController.format_bytes(12 * 1024 ** 3)).toBe('12.0 GB');
+        expect(PlaylistHomeViewController.format_bytes(150 * 1024 ** 3)).toBe('150 GB');
+    });
+
+    it('paints the library size, free space and used bar', async () => {
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="home-storage" class="hidden">
+                <span id="home-storage-size"></span>
+                <span id="home-storage-fill"></span>
+                <div id="home-storage-meta"></div>
+            </div>
+        `);
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+            ok: true,
+            json: async () => ({
+                media_bytes: 12 * 1024 ** 3,
+                free_bytes: 25 * 1024 ** 3,
+                total_bytes: 100 * 1024 ** 3,
+            }),
+        })));
+        const { controller } = makeController();
+        controller.render_storage();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        const box = document.getElementById('home-storage');
+        expect(box.classList.contains('hidden')).toBe(false);
+        expect(document.getElementById('home-storage-size').textContent).toBe('12.0 GB');
+        expect(document.getElementById('home-storage-meta').textContent).toBe('25.0 GB free of 100 GB');
+        expect(document.getElementById('home-storage-fill').style.width).toBe('75%');
+        vi.unstubAllGlobals();
+    });
+
+    it('reuses the payload for a minute instead of fetching again', async () => {
+        document.body.insertAdjacentHTML('beforeend', '<div id="home-storage" class="hidden"></div>');
+        const fetch_fn = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: async () => ({ media_bytes: 1, free_bytes: 1, total_bytes: 2 }),
+        }));
+        vi.stubGlobal('fetch', fetch_fn);
+        const { controller } = makeController();
+        controller.render_storage();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        controller.render_storage();
+        expect(fetch_fn).toHaveBeenCalledTimes(1);
+        vi.unstubAllGlobals();
+    });
+});

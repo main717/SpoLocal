@@ -15,6 +15,7 @@ import os
 import threading
 import mimetypes
 import shlex
+import shutil
 import tempfile
 from urllib.parse import quote
 from dotenv import load_dotenv
@@ -843,6 +844,54 @@ async def api_playlist_state(request: Request, playlist_id: str):
             "tracks_payload": [_track_payload_row(t) for t in pl.tracks],
         },
     )
+
+
+@app.get("/api/storage")
+async def api_storage():
+    """Library size on disk plus free space, cached for a minute."""
+    return JSONResponse(await asyncio.to_thread(_storage_payload))
+
+
+_storage_cache: dict[str, Any] = {"at": 0.0, "payload": None}
+
+
+def _storage_payload() -> dict[str, Any]:
+    now = time.monotonic()
+    cached = _storage_cache["payload"]
+    if cached is not None and now - _storage_cache["at"] < 60:
+        return cached
+    media_root = service.root / "downloads"
+    media_bytes = 0
+    media_files = 0
+    by_quality: dict[str, int] = {}
+    if media_root.is_dir():
+        for path in media_root.rglob("*"):
+            try:
+                if not path.is_file():
+                    continue
+                size = path.stat().st_size
+            except OSError:
+                continue
+            media_bytes += size
+            media_files += 1
+            match = re.search(r"__(\d+)k\.", path.name)
+            bucket = match.group(1) if match else "other"
+            by_quality[bucket] = by_quality.get(bucket, 0) + size
+    try:
+        usage = shutil.disk_usage(media_root if media_root.is_dir() else service.root)
+        free_bytes, total_bytes = usage.free, usage.total
+    except OSError:
+        free_bytes, total_bytes = 0, 0
+    payload = {
+        "media_bytes": media_bytes,
+        "media_files": media_files,
+        "free_bytes": free_bytes,
+        "total_bytes": total_bytes,
+        "by_quality": by_quality,
+    }
+    _storage_cache["at"] = now
+    _storage_cache["payload"] = payload
+    return payload
 
 
 @app.get("/api/home/view")

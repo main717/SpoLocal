@@ -48,10 +48,61 @@ export class PlaylistHomeViewController {
     render() {
         const data = this.aggregate();
         this.render_stats(data);
+        this.render_storage();
         this.render_stories(data);
         this.render_top_playlists(data);
         this.render_top_songs(data);
         this.bind_controls();
+    }
+
+    static format_bytes(bytes) {
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = Math.max(0, Number(bytes) || 0);
+        let i = 0;
+        while (value >= 1024 && i < units.length - 1) {
+            value /= 1024;
+            i += 1;
+        }
+        return (i === 0 ? String(Math.round(value)) : value.toFixed(value >= 100 ? 0 : 1)) + ' ' + units[i];
+    }
+
+    /** Disk usage of the media folder, fetched at most once a minute. */
+    render_storage() {
+        const el = document.getElementById('home-storage');
+        if (!el) return;
+        if (this._storage && Date.now() - this._storage.at < 60000) {
+            this.paint_storage(this._storage.data);
+            return;
+        }
+        if (this._storagePending) return;
+        this._storagePending = true;
+        fetch('/api/storage', { credentials: 'same-origin' })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+                this._storagePending = false;
+                if (!data) return;
+                this._storage = { at: Date.now(), data };
+                this.paint_storage(data);
+            })
+            .catch(() => { this._storagePending = false; });
+    }
+
+    paint_storage(data) {
+        const box = document.getElementById('home-storage');
+        if (!box) return;
+        box.classList.remove('hidden');
+        const total = Number(data.total_bytes) || 0;
+        const free = Number(data.free_bytes) || 0;
+        const used_pct = total ? Math.min(100, Math.max(0, ((total - free) / total) * 100)) : 0;
+        const size = document.getElementById('home-storage-size');
+        const meta = document.getElementById('home-storage-meta');
+        const fill = document.getElementById('home-storage-fill');
+        if (size) size.textContent = PlaylistHomeViewController.format_bytes(data.media_bytes);
+        if (meta) {
+            meta.textContent = PlaylistHomeViewController.format_bytes(free) +
+                ' free of ' + PlaylistHomeViewController.format_bytes(total);
+        }
+        if (fill) fill.style.width = used_pct.toFixed(1) + '%';
     }
 
     catalog_by_id() {
