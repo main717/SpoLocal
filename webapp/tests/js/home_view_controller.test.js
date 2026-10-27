@@ -260,6 +260,5 @@ describe('random toggle', () => {
         document.getElementById('home-random-toggle').click();
         expect(hub.randomMode).toBe(true);
         expect(transport.play_random_from_library).toHaveBeenCalled();
-        expect(document.getElementById('home-random-status').classList.contains('hidden')).toBe(false);
     });
 });

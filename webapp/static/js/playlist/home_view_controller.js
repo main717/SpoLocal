@@ -36,7 +36,6 @@ export class PlaylistHomeViewController {
     sync_random_ui() {
         const hub = this.state.hub;
         const btn = document.getElementById('home-random-toggle');
-        const status = document.getElementById('home-random-status');
         if (btn) {
             btn.textContent = hub.randomMode ? 'Stop random' : 'Start random';
             btn.classList.toggle('bg-[#3E3E3E]', hub.randomMode);
@@ -44,7 +43,6 @@ export class PlaylistHomeViewController {
             btn.classList.toggle('bg-[#1DB954]', !hub.randomMode);
             btn.classList.toggle('text-black', !hub.randomMode);
         }
-        if (status) status.classList.toggle('hidden', !hub.randomMode);
     }
 
     render() {
