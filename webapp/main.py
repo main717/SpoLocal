@@ -4,11 +4,15 @@ Registers page and API routes for search, playlists, downloads, and media servin
 Coordinates the download, metadata, and model layers to serve each request."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 import logging
 import re
 import time
+import json
+import os
+import threading
 import mimetypes
 import shlex
 import tempfile
@@ -534,6 +538,174 @@ async def api_playlists_catalog(request: Request):
 @app.get("/api/liked-keys")
 async def api_liked_keys(request: Request):
     return JSONResponse({"keys": service.list_liked_entry_keys(_owner_id(request))})
+
+
+class PlayLogService:
+    """Per-account play counters persisted next to the other data files.
+
+    Counts live on the server so every device sees the same analytics. Guests
+    keep their counters in localStorage only. Counts only ever go up, so the
+    client can merge its local history into the account once, after which the
+    server wins.
+    """
+
+    MAX_DAYS = 60
+    COUNTER_FIELDS = ("track_plays", "playlist_plays", "day_plays")
+
+    def __init__(self, data_root: Path) -> None:
+        self.root = Path(data_root)
+        self._lock = threading.Lock()
+        self._data: dict[str, dict[str, Any]] = {}
+        self._load()
+
+    def _data_file(self) -> Path:
+        override = (os.environ.get("SPLOCAL_PLAY_LOGS_PATH") or "").strip()
+        if override:
+            return Path(override)
+        playlists = (os.environ.get("SPLOCAL_PLAYLISTS_PATH") or "").strip()
+        if playlists:
+            return Path(playlists).parent / "play_logs.json"
+        data_dir = self.root / "data"
+        if data_dir.is_dir():
+            return data_dir / "play_logs.json"
+        return self.root / "play_logs.json"
+
+    def _load(self) -> None:
+        path = self._data_file()
+        if not path.is_file():
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if isinstance(raw, dict):
+            self._data = {str(k): v for k, v in raw.items() if isinstance(v, dict)}
+
+    def _save(self) -> None:
+        path = self._data_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+        tmp.replace(path)
+
+    @classmethod
+    def _empty(cls) -> dict[str, Any]:
+        return {field: {} for field in cls.COUNTER_FIELDS}
+
+    @staticmethod
+    def _clean_counts(raw: Any) -> dict[str, int]:
+        clean: dict[str, int] = {}
+        if not isinstance(raw, dict):
+            return clean
+        for key, value in raw.items():
+            try:
+                count = int(value)
+            except (TypeError, ValueError):
+                continue
+            if count > 0:
+                clean[str(key)] = count
+        return clean
+
+    def get(self, owner_id: Optional[str]) -> dict[str, Any]:
+        if not owner_id:
+            return self._empty()
+        with self._lock:
+            row = self._data.get(owner_id) or {}
+            return {field: dict(row.get(field) or {}) for field in self.COUNTER_FIELDS}
+
+    def record(
+        self,
+        owner_id: Optional[str],
+        playlist_id: str,
+        track_id: str,
+        day: str,
+    ) -> bool:
+        pid = (playlist_id or "").strip()
+        tid = (track_id or "").strip()
+        if not owner_id or not pid or not tid:
+            return False
+        key = f"{pid}|{tid}"
+        with self._lock:
+            row = self._data.setdefault(owner_id, self._empty())
+            tracks = row.setdefault("track_plays", {})
+            tracks[key] = int(tracks.get(key) or 0) + 1
+            playlists = row.setdefault("playlist_plays", {})
+            playlists[pid] = int(playlists.get(pid) or 0) + 1
+            days = row.setdefault("day_plays", {})
+            stamp = (day or "").strip()[:10]
+            if stamp:
+                days[stamp] = int(days.get(stamp) or 0) + 1
+                if len(days) > self.MAX_DAYS:
+                    for old in sorted(days)[: len(days) - self.MAX_DAYS]:
+                        del days[old]
+            self._save()
+        return True
+
+    def seed(self, owner_id: Optional[str], payload: dict[str, Any]) -> bool:
+        """Merge a device's local history into the account, keeping the larger count.
+
+        A device seeds once, so its old localStorage plays survive the switch to
+        server-side counters without double counting the plays it mirrored back.
+        """
+        if not owner_id or not isinstance(payload, dict):
+            return False
+        incoming = {field: self._clean_counts(payload.get(field)) for field in self.COUNTER_FIELDS}
+        if not any(incoming.values()):
+            return False
+        with self._lock:
+            row = self._data.setdefault(owner_id, self._empty())
+            for field, counts in incoming.items():
+                current = row.setdefault(field, {})
+                for key, value in counts.items():
+                    if value > int(current.get(key) or 0):
+                        current[key] = value
+            days = row.get("day_plays") or {}
+            if len(days) > self.MAX_DAYS:
+                for old in sorted(days)[: len(days) - self.MAX_DAYS]:
+                    del days[old]
+            self._save()
+        return True
+
+
+play_logs = PlayLogService(root)
+
+
+class PlayLogBody(BaseModel):
+    playlist_id: str = Field(..., min_length=1)
+    track_id: str = Field(..., min_length=1)
+
+
+class PlayLogSeedBody(BaseModel):
+    track_plays: dict[str, int] = Field(default_factory=dict)
+    playlist_plays: dict[str, int] = Field(default_factory=dict)
+    day_plays: dict[str, int] = Field(default_factory=dict)
+
+
+@app.get("/api/play-log")
+async def api_play_log_get(request: Request):
+    uid = _owner_id(request)
+    payload = {"authenticated": bool(uid)}
+    payload.update(play_logs.get(uid))
+    return JSONResponse(payload)
+
+
+@app.post("/api/play-log")
+async def api_play_log_record(body: PlayLogBody, request: Request):
+    uid = _owner_id(request)
+    if not uid:
+        return JSONResponse({"ok": False, "stored": False})
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    stored = play_logs.record(uid, body.playlist_id, body.track_id, day)
+    return JSONResponse({"ok": True, "stored": stored})
+
+
+@app.post("/api/play-log/seed")
+async def api_play_log_seed(body: PlayLogSeedBody, request: Request):
+    uid = _owner_id(request)
+    if not uid:
+        return JSONResponse({"ok": False, "seeded": False})
+    seeded = play_logs.seed(uid, body.model_dump())
+    return JSONResponse({"ok": True, "seeded": seeded})
 
 
 class CreatePlaylistBody(BaseModel):

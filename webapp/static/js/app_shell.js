@@ -287,6 +287,27 @@ class AppShellController {
         return false;
     }
 
+    buildSidebarPlaylistCard(pl, activeId, bust) {
+        const isActive = !!activeId && pl.id === activeId;
+        const card = document.createElement('div');
+        card.className = 'group playlist-card rounded-md text-sm' + (isActive ? ' nav-active' : '');
+        card.dataset.playlistId = pl.id;
+        card.dataset.playlistName = pl.name || '';
+        const a = document.createElement('a');
+        a.href = '/?playlist_id=' + encodeURIComponent(pl.id);
+        a.className = 'playlist-spa-nav flex w-full min-w-0 items-center gap-x-3 px-3 py-2 rounded-md' + (isActive ? '' : ' hover:bg-[#282828]');
+        const artWrap = document.createElement('div');
+        artWrap.className = 'h-10 w-10 shrink-0 overflow-hidden rounded bg-[#1a1a1a]';
+        artWrap.appendChild(AppShellController.buildPlaylistArtGridEl(pl.cover_tiles, 'h-full w-full', bust));
+        a.appendChild(artWrap);
+        const span = document.createElement('span');
+        span.className = 'truncate';
+        span.textContent = pl.name || '';
+        a.appendChild(span);
+        card.appendChild(a);
+        return card;
+    }
+
     renderSidebarPlaylistList(activePlaylistId, bust) {
         const list = document.getElementById('sidebar-playlist-list');
         if (!list) return;
@@ -298,25 +319,34 @@ class AppShellController {
             // The liked songs playlist lives in the BROWSE section, under Home.
             if (pl.system_locked) return;
             if (likedId && pl.id === likedId) return;
-            const isActive = !!activeId && pl.id === activeId;
-            const card = document.createElement('div');
-            card.className = 'group playlist-card rounded-md text-sm' + (isActive ? ' nav-active' : '');
-            card.dataset.playlistId = pl.id;
-            card.dataset.playlistName = pl.name || '';
-            const a = document.createElement('a');
-            a.href = '/?playlist_id=' + encodeURIComponent(pl.id);
-            a.className = 'playlist-spa-nav flex w-full min-w-0 items-center gap-x-3 px-3 py-2 rounded-md' + (isActive ? '' : ' hover:bg-[#282828]');
-            const artWrap = document.createElement('div');
-            artWrap.className = 'h-10 w-10 shrink-0 overflow-hidden rounded bg-[#1a1a1a]';
-            artWrap.appendChild(AppShellController.buildPlaylistArtGridEl(pl.cover_tiles, 'h-full w-full', bust));
-            a.appendChild(artWrap);
-            const span = document.createElement('span');
-            span.className = 'truncate';
-            span.textContent = pl.name || '';
-            a.appendChild(span);
-            card.appendChild(a);
-            list.appendChild(card);
+            list.appendChild(this.buildSidebarPlaylistCard(pl, activeId, bust));
         });
+    }
+
+    /**
+     * Derive the liked playlist id from the catalog. A PWA launch can render the
+     * document as a guest, which leaves the server-rendered id null even though
+     * the catalog request is authenticated.
+     */
+    syncLikedPlaylistId() {
+        const liked = this.playlistsCatalog.find((pl) => pl && pl.system_locked);
+        const id = liked ? String(liked.id || '').trim() : '';
+        if (!id) return '';
+        window.__likedPlaylistId = id;
+        const hub = window.SpolocalPlayerHub;
+        if (hub) hub.LIKED_PLAYLIST_ID = id;
+        return id;
+    }
+
+    /** Rebuild the BROWSE Liked Songs row when the document rendered as guest. */
+    ensureSidebarLikedRow() {
+        const slot = document.getElementById('sidebar-liked-nav');
+        if (!slot || slot.querySelector('.playlist-card')) return;
+        const liked = this.playlistsCatalog.find((pl) => pl && pl.system_locked);
+        if (!liked) return;
+        slot.innerHTML = '';
+        slot.appendChild(this.buildSidebarPlaylistCard(liked, this._sidebarActiveId));
+        slot.classList.remove('hidden');
     }
 
     async afterTrackAddedToPlaylist(plId) {
@@ -1431,6 +1461,8 @@ class AppShellController {
                 window.invalidatePlaylistViewCache();
             }
             const changed = await this.reloadPlaylistsCatalog();
+            this.syncLikedPlaylistId();
+            this.ensureSidebarLikedRow();
             const pid = activePlaylistId != null ? activePlaylistId : (window.__spaPlaylistId || '');
             // Rebuilding the list recreates every <img>; skip it when nothing changed.
             if (!changed && pid === this._sidebarActiveId) return;
@@ -1447,6 +1479,8 @@ class AppShellController {
         // The sidebar is server-rendered; remember its active id so the first
         // refresh does not rebuild (and reload) every tile.
         this._sidebarActiveId = String(window.__spaPlaylistId || '').trim();
+        this.syncLikedPlaylistId();
+        this.ensureSidebarLikedRow();
         // A PWA launch can serve the document without the session cookie even
         // though API calls carry it. Rebuild the guest sidebar from the catalog.
         const hint_wrap = document.getElementById('sidebar-login-hint-wrap');

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PlaylistPlayLog } from '../../static/js/playlist/play_log.js';
 
@@ -9,6 +9,97 @@ function expected_day(offset_days) {
 beforeEach(() => {
     localStorage.clear();
     document.body.innerHTML = '';
+});
+
+afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+});
+
+function json_response(body, ok) {
+    return Promise.resolve({
+        ok: ok !== false,
+        json: () => Promise.resolve(body),
+    });
+}
+
+describe('sync', () => {
+    it('does nothing for a guest', async () => {
+        const fetch = vi.fn(() => json_response({ authenticated: false }));
+        vi.stubGlobal('fetch', fetch);
+        expect(await PlaylistPlayLog.sync()).toBe(false);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(localStorage.getItem('spolocal_play_log_synced')).toBe(null);
+    });
+
+    it('seeds local history once then mirrors the account', async () => {
+        localStorage.setItem('spolocal_track_plays', JSON.stringify({ 'p1|t1': 3 }));
+        localStorage.setItem('spolocal_playlist_plays', JSON.stringify({ p1: 3 }));
+        localStorage.setItem('spolocal_play_log', JSON.stringify({ '2026-01-01': 3 }));
+        const fetch = vi.fn()
+            .mockImplementationOnce(() => json_response({ authenticated: true, track_plays: {}, playlist_plays: {}, day_plays: {} }))
+            .mockImplementationOnce(() => json_response({ ok: true, seeded: true }))
+            .mockImplementationOnce(() => json_response({
+                authenticated: true,
+                track_plays: { 'p1|t1': 9 },
+                playlist_plays: { p1: 9 },
+                day_plays: { '2026-01-01': 9 },
+            }));
+        vi.stubGlobal('fetch', fetch);
+
+        expect(await PlaylistPlayLog.sync()).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(3);
+        const seed_call = fetch.mock.calls[1];
+        expect(seed_call[0]).toBe('/api/play-log/seed');
+        expect(JSON.parse(seed_call[1].body)).toEqual({
+            track_plays: { 'p1|t1': 3 },
+            playlist_plays: { p1: 3 },
+            day_plays: { '2026-01-01': 3 },
+        });
+        expect(PlaylistPlayLog.track_plays()).toEqual({ 'p1|t1': 9 });
+        expect(PlaylistPlayLog.playlist_plays()).toEqual({ p1: 9 });
+        expect(PlaylistPlayLog.day_plays()).toEqual({ '2026-01-01': 9 });
+        expect(PlaylistPlayLog.is_synced()).toBe(true);
+    });
+
+    it('skips seeding after the first sync', async () => {
+        localStorage.setItem('spolocal_play_log_synced', '1');
+        localStorage.setItem('spolocal_track_plays', JSON.stringify({ 'p1|t1': 3 }));
+        const fetch = vi.fn(() => json_response({
+            authenticated: true,
+            track_plays: { 'p1|t1': 4 },
+            playlist_plays: {},
+            day_plays: {},
+        }));
+        vi.stubGlobal('fetch', fetch);
+
+        expect(await PlaylistPlayLog.sync()).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(fetch.mock.calls[0][0]).toBe('/api/play-log');
+        expect(fetch.mock.calls[1][0]).toBe('/api/play-log');
+        expect(PlaylistPlayLog.track_plays()).toEqual({ 'p1|t1': 4 });
+    });
+
+    it('does not seed an empty local log', async () => {
+        const fetch = vi.fn()
+            .mockImplementationOnce(() => json_response({ authenticated: true }))
+            .mockImplementationOnce(() => json_response({ authenticated: true }));
+        vi.stubGlobal('fetch', fetch);
+
+        expect(await PlaylistPlayLog.sync()).toBe(true);
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(fetch.mock.calls[1][0]).toBe('/api/play-log');
+    });
+
+    it('returns false when the request fails', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
+        expect(await PlaylistPlayLog.sync()).toBe(false);
+    });
+
+    it('returns false when the account rejects the read', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => json_response({}, false)));
+        expect(await PlaylistPlayLog.sync()).toBe(false);
+    });
 });
 
 describe('track_key', () => {

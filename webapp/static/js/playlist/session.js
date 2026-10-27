@@ -1,4 +1,4 @@
-import { PlaylistTransportController } from '../player/transport_controller.js?v=116';
+import { PlaylistTransportController } from '../player/transport_controller.js?v=117';
 import { PlaylistLikeController } from '../player/like_controller.js?v=1';
 import { PlaylistShuffleController } from '../player/shuffle_controller.js?v=5';
 import { PlaylistMediaSessionController } from '../player/media_session_controller.js?v=1';
@@ -9,7 +9,8 @@ import { PlaylistEditModalController } from '../ui/edit_modal_controller.js';
 import { PlaylistContextMenuController } from '../ui/context_menu_controller.js?v=94';
 import { PlaylistDownloadController } from '../services/download_controller.js?v=95';
 import { PlaylistColumnResizer } from '../ui/column_resizer.js';
-import { PlaylistHomeViewController } from './home_view_controller.js?v=92';
+import { PlaylistHomeViewController } from './home_view_controller.js?v=93';
+import { PlaylistPlayLog } from './play_log.js?v=2';
 import { SettingsController } from '../ui/settings_controller.js?v=2';
 import { AccountController } from '../ui/account_controller.js?v=3';
 import { TrackInfoController } from '../ui/track_info_controller.js';
@@ -66,6 +67,19 @@ export class PlaylistSessionController {
         this.download.setCrossRefs(this);
     }
 
+    /** Finish boot after playback restore: account counters, liked keys, queue. */
+    async after_restore() {
+        this.queue.restore_manual_queue_from_storage();
+        this.transport.shuffle.syncShuffleOrderWithPlaylist();
+        // The account is the source of truth for play counts; mirror it back
+        // into localStorage before the home view reads the numbers.
+        const synced = await PlaylistPlayLog.sync();
+        await this.transport.likes.refresh_liked_keys_from_server();
+        this.transport.likes.update_like_button_ui();
+        if (this.state.hub.queueVisible) this.queue.render_queue_list();
+        if (synced && this.state.hub.isHomeView) this.home.render();
+    }
+
     /** Initialize playlist DOM state and start all controllers. */
     bootstrap() {
         this.initialize_playlist_state();
@@ -92,28 +106,18 @@ export class PlaylistSessionController {
             this.transport.likes.bind_track_row_like_buttons();
         }
 
-        this.restoreLastPlayback().then(async () => {
-            this.queue.restore_manual_queue_from_storage();
-            this.transport.shuffle.syncShuffleOrderWithPlaylist();
-            await this.transport.likes.refresh_liked_keys_from_server();
-            this.transport.likes.update_like_button_ui();
-            if (this.state.hub.queueVisible) this.queue.render_queue_list();
-        }).catch(async () => {
-            this.queue.restore_manual_queue_from_storage();
-            this.transport.shuffle.syncShuffleOrderWithPlaylist();
-            await this.transport.likes.refresh_liked_keys_from_server();
-            this.transport.likes.update_like_button_ui();
-            if (this.state.hub.queueVisible) this.queue.render_queue_list();
-        }).finally(() => {
-            const u = new URLSearchParams(location.search);
-            if (u.get('view') === 'mix' && u.get('playlist_id') && u.get('track_id')) {
-                void this.songMix.open({
-                    playlist_id: u.get('playlist_id'),
-                    track_id: u.get('track_id'),
-                    push: false,
-                });
-            }
-        });
+        this.restoreLastPlayback()
+            .then(() => this.after_restore(), () => this.after_restore())
+            .finally(() => {
+                const u = new URLSearchParams(location.search);
+                if (u.get('view') === 'mix' && u.get('playlist_id') && u.get('track_id')) {
+                    void this.songMix.open({
+                        playlist_id: u.get('playlist_id'),
+                        track_id: u.get('track_id'),
+                        push: false,
+                    });
+                }
+            });
 
         window.addEventListener('popstate', () => {
             const u = new URLSearchParams(location.search);

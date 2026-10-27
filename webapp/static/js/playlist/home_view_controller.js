@@ -7,7 +7,7 @@
  * when nothing changed, which matters because render() also runs on every play.
  */
 import { Dom } from '../ui/dom.js?v=1';
-import { PlaylistPlayLog } from './play_log.js?v=1';
+import { PlaylistPlayLog } from './play_log.js?v=2';
 
 export class PlaylistHomeViewController {
     /** @param {import('../player/player_state.js').PlaylistPlayerState} state */

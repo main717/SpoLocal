@@ -112,6 +112,53 @@ class TestAuthRoutes:
         assert "password_hash" not in user
 
 
+class TestPlayLog:
+    def test_guest_reads_empty_state(self, client) -> None:
+        assert client.get("/api/play-log").json() == {
+            "authenticated": False,
+            "track_plays": {},
+            "playlist_plays": {},
+            "day_plays": {},
+        }
+
+    def test_guest_writes_are_ignored(self, client) -> None:
+        assert client.post(
+            "/api/play-log", json={"playlist_id": "p", "track_id": "t"}
+        ).json() == {"ok": False, "stored": False}
+        assert client.post(
+            "/api/play-log/seed", json={"track_plays": {"p|t": 2}}
+        ).json() == {"ok": False, "seeded": False}
+
+    def test_record_counts_for_the_account(self, client, logged_in) -> None:
+        client.post("/api/play-log", json={"playlist_id": "p1", "track_id": "t1"})
+        client.post("/api/play-log", json={"playlist_id": "p1", "track_id": "t1"})
+        body = client.get("/api/play-log").json()
+        assert body["authenticated"] is True
+        assert body["track_plays"] == {"p1|t1": 2}
+        assert body["playlist_plays"] == {"p1": 2}
+        assert sum(body["day_plays"].values()) == 2
+
+    def test_seed_merges_the_larger_count(self, client, logged_in) -> None:
+        client.post("/api/play-log", json={"playlist_id": "p1", "track_id": "t1"})
+        client.post(
+            "/api/play-log/seed",
+            json={"track_plays": {"p1|t1": 5, "p1|t2": 2}, "playlist_plays": {"p1": 7}},
+        )
+        client.post("/api/play-log/seed", json={"track_plays": {"p1|t1": 3}})
+        body = client.get("/api/play-log").json()
+        assert body["track_plays"] == {"p1|t1": 5, "p1|t2": 2}
+        assert body["playlist_plays"] == {"p1": 7}
+
+    def test_counts_are_per_account(self, client, accounts) -> None:
+        client.post("/api/auth/register", json={"username": "first", "password": "long enough"})
+        client.post("/api/play-log", json={"playlist_id": "p1", "track_id": "t1"})
+        client.post("/api/auth/logout")
+        client.post("/api/auth/register", json={"username": "second", "password": "long enough"})
+        body = client.get("/api/play-log").json()
+        assert body["authenticated"] is True
+        assert body["track_plays"] == {}
+
+
 class TestCreatePlaylistWithTrack:
     def test_creates_playlist_and_queues_download(self, client, service, logged_in) -> None:
         _, user_id = logged_in

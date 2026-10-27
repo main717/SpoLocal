@@ -61,13 +61,14 @@ def main_module():
 
 
 @pytest.fixture
-def client(main_module, service, accounts, monkeypatch: pytest.MonkeyPatch):
+def client(main_module, service, accounts, temp_root, monkeypatch: pytest.MonkeyPatch):
     from fastapi.testclient import TestClient
     from export_service import ExportService
     from lyrics_service import LyricsService
 
     monkeypatch.setattr(main_module, "service", service)
     monkeypatch.setattr(main_module, "accounts", accounts)
+    monkeypatch.setattr(main_module, "play_logs", main_module.PlayLogService(temp_root))
     monkeypatch.setattr(main_module, "lyrics_service", LyricsService(service))
     monkeypatch.setattr(main_module, "export_service", ExportService(service))
     return TestClient(main_module.app)
