@@ -202,6 +202,36 @@ class TestCreatePlaylistWithTrack:
         assert pl.tracks == []
 
 
+class TestLikedSongsAdd:
+    def test_requires_login(self, client) -> None:
+        resp = client.post("/api/liked-songs/add", json={"title": "Song", "artist": "Artist"})
+        assert resp.status_code == 401
+
+    def test_saves_a_song_without_a_playlist(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        resp = client.post(
+            "/api/liked-songs/add",
+            json={
+                "title": "Song",
+                "artist": "Artist",
+                "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "quality": "64",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        liked = service._ensure_liked_songs_playlist(user_id)
+        assert liked is not None
+        assert [t.title for t in liked.tracks] == ["Song"]
+        assert body["playlist_id"] == liked.id
+        assert body["track"]["id"] == liked.tracks[0].id
+        assert (liked.tracks[0].id, "64") in service._pending_job_keys
+
+    def test_blank_title_is_rejected(self, client, logged_in) -> None:
+        resp = client.post("/api/liked-songs/add", json={"title": "   "})
+        assert resp.status_code == 400
+
+
 class TestCoverTier:
     def test_data_saver_catalog_uses_youtube_thumbs(self, client, service, logged_in) -> None:
         _, user_id = logged_in

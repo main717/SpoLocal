@@ -510,6 +510,52 @@ class TestLikedSongs:
         assert service.list_liked_entry_keys("u1") == [f"{pl.id}|{t.id}"]
         assert service.list_liked_entry_keys(None) == []
 
+    def test_add_song_directly_downloads_and_dedupes(self, service: DownloadService) -> None:
+        first = service.add_track_to_liked_songs(
+            "Fresh Song",
+            "Artist",
+            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            owner_id="u1",
+            download_quality="64",
+        )
+        assert first is not None
+        liked = service._ensure_liked_songs_playlist("u1")
+        assert [t.id for t in liked.tracks] == [first.id]
+        assert first.status == DownloadStatus.queued
+        assert first.liked_source_playlist_id is None
+        assert (first.id, "64") in service._pending_job_keys
+
+        again = service.add_track_to_liked_songs(
+            "Fresh Song",
+            "Artist",
+            url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            owner_id="u1",
+        )
+        assert again is first
+        assert len(liked.tracks) == 1
+
+    def test_add_song_links_an_existing_library_copy(self, service: DownloadService, temp_root: Path) -> None:
+        write_media(temp_root, "youtube/Song [dQw4w9WgXcQ]__192k.opus")
+        pl = service.create_playlist("Mine", owner_id="u1")
+        t = make_track(
+            "Song",
+            "Artist",
+            video_id="dQw4w9WgXcQ",
+            variants={"192": "youtube/Song [dQw4w9WgXcQ]__192k.opus"},
+        )
+        pl.add_track(t)
+
+        liked_track = service.add_track_to_liked_songs(
+            "Song", "Artist", video_id="dQw4w9WgXcQ", owner_id="u1"
+        )
+        assert liked_track is not None
+        assert liked_track.liked_source_playlist_id == pl.id
+        assert liked_track.liked_source_track_id == t.id
+        assert service.list_liked_entry_keys("u1") == [f"{pl.id}|{t.id}"]
+
+    def test_add_song_needs_an_account(self, service: DownloadService) -> None:
+        assert service.add_track_to_liked_songs("Song", "Artist") is None
+
 
 class TestDelete:
     def test_delete_track_removes_file(self, service: DownloadService, temp_root: Path) -> None:

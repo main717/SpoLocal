@@ -291,6 +291,42 @@ describe('add-to-playlist popover', () => {
         expect(document.querySelector('#atp-list-inner p').textContent).toContain('No playlists yet');
     });
 
+    it('pins Liked Songs above the playlist list', async () => {
+        const shell = await load_shell();
+        shell.playlistsCatalog = [
+            { id: 'liked', name: 'Liked Songs', cover_tiles: [], system_locked: true },
+            { id: 'p1', name: 'Alpha', cover_tiles: [] },
+        ];
+        shell.renderAtpList();
+        const buttons = document.querySelectorAll('#atp-list-inner button');
+        expect(buttons).toHaveLength(2);
+        expect(buttons[0].textContent).toContain('Liked Songs');
+        expect(buttons[1].textContent).toContain('Alpha');
+    });
+
+    it('posts a search hit straight to Liked Songs', async () => {
+        const shell = await load_shell();
+        const calls = [];
+        vi.stubGlobal('fetch', (url, opts) => {
+            calls.push({ url: String(url), body: JSON.parse(opts.body) });
+            return Promise.resolve(json_response({ ok: true, playlist_id: 'liked' }));
+        });
+
+        const data = await shell.addHitToLikedSongs({
+            title: 'Song',
+            artist: 'Artist',
+            video_id: 'dQw4w9WgXcQ',
+            library_matches: [{ playlist_id: 'p1', track_id: 't1' }],
+        });
+
+        expect(data.playlist_id).toBe('liked');
+        expect(calls[0].url).toBe('/api/liked-songs/add');
+        expect(calls[0].body.title).toBe('Song');
+        expect(calls[0].body.video_id).toBe('dQw4w9WgXcQ');
+        expect(calls[0].body.source_playlist_id).toBe('p1');
+        expect(calls[0].body.source_track_id).toBe('t1');
+    });
+
     it('opens at a point through a ghost anchor and removes it on close', async () => {
         const shell = await load_shell();
         shell.playlistsCatalog = [{ id: 'p1', name: 'Alpha', cover_tiles: [] }];

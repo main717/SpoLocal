@@ -440,6 +440,48 @@ class AppShellController {
         return AppShellController.parseJsonApiResponse(r, 'Could not create playlist.');
     }
 
+    async addHitToLikedSongs(hit) {
+        const body = {
+            title: hit.title || '',
+            artist: hit.artist || hit.channel || '',
+            url: hit.url || '',
+            album: hit.album || '',
+            video_id: hit.video_id || '',
+            quality: String(window.SpolocalQualityPrefs ? window.SpolocalQualityPrefs.downloadKbps() : '192'),
+        };
+        const lib = Array.isArray(hit.library_matches) ? hit.library_matches : [];
+        if (lib.length && lib[0].playlist_id && lib[0].track_id) {
+            body.source_playlist_id = String(lib[0].playlist_id);
+            body.source_track_id = String(lib[0].track_id);
+        }
+        const r = await fetch('/api/liked-songs/add', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(body),
+        });
+        return AppShellController.parseJsonApiResponse(r, 'Could not save to Liked Songs.');
+    }
+
+    async afterSavedToLikedSongs(plId) {
+        if (!plId) return;
+        if (typeof window.invalidatePlaylistViewCache === 'function') {
+            window.invalidatePlaylistViewCache(plId);
+        }
+        await this.reloadPlaylistsCatalog();
+        this.syncLikedPlaylistId();
+        this.renderSidebarPlaylistList(this._sidebarActiveId);
+        this.ensureSidebarLikedRow();
+        const cur = window.__spaPlaylistId || new URL(location.href).searchParams.get('playlist_id') || '';
+        if (cur !== plId) return;
+        try {
+            const r = await fetch('/api/playlist/view?playlist_id=' + encodeURIComponent(plId));
+            if (r.ok && typeof window.applySpaPlaylist === 'function') {
+                window.applySpaPlaylist(await r.json());
+            }
+        } catch (e) {}
+    }
+
     // ---- search cards + preview playback -----------------------------------
 
     reset_search_card_buttons() {
@@ -708,12 +750,42 @@ class AppShellController {
         if (!this.atpListInner) return;
         this.atpListInner.innerHTML = '';
         const q = (this.atpFilter && this.atpFilter.value ? this.atpFilter.value : '').trim().toLowerCase();
+        const likedId = this.syncLikedPlaylistId();
+        const showLiked = !!(likedId && (!q || 'liked songs'.indexOf(q) !== -1));
+        if (showLiked) {
+            const likedBtn = document.createElement('button');
+            likedBtn.type = 'button';
+            likedBtn.className = 'flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-white hover:bg-[#3e3e3e]';
+            const heart = document.createElement('span');
+            heart.className = 'flex h-10 w-10 shrink-0 items-center justify-center rounded bg-gradient-to-br from-[#450af5] to-[#c4efd9] text-white';
+            heart.innerHTML = '<i class="fa-solid fa-heart text-sm"></i>';
+            likedBtn.appendChild(heart);
+            const span = document.createElement('span');
+            span.className = 'min-w-0 truncate';
+            span.textContent = 'Liked Songs';
+            likedBtn.appendChild(span);
+            likedBtn.addEventListener('click', async () => {
+                if (!this.pendingAddHit) return;
+                const hit = this.pendingAddHit;
+                likedBtn.disabled = true;
+                try {
+                    const data = await this.addHitToLikedSongs(hit);
+                    this.closeAddToPlaylistPopover();
+                    await this.afterSavedToLikedSongs(data && data.playlist_id);
+                } catch (e) {
+                    alert(e && e.message ? e.message : 'Could not save to Liked Songs.');
+                    likedBtn.disabled = false;
+                }
+            });
+            this.atpListInner.appendChild(likedBtn);
+        }
         const filtered = this.playlistsCatalog.filter((pl) => {
             if (pl.system_locked) return false;
             return !q || (pl.name && pl.name.toLowerCase().indexOf(q) !== -1);
         });
 
         if (!filtered.length) {
+            if (showLiked) return;
             const empty = document.createElement('p');
             empty.className = 'px-3 py-4 text-center text-xs text-[#727272]';
             empty.textContent = this.playlistsCatalog.length ? 'No matching playlists.' : 'No playlists yet — use New playlist above.';
@@ -915,10 +987,10 @@ class AppShellController {
         }
 
         const addRow = document.createElement('div');
-        addRow.className = 'mt-3 px-0.5';
+        addRow.className = 'mt-3 flex items-center gap-1.5 px-0.5';
         const bAdd = document.createElement('button');
         bAdd.type = 'button';
-        bAdd.className = 'open-add-to-playlist w-full rounded-full bg-transparent py-1.5 text-center text-xs font-semibold text-[#B3B3B3] ring-1 ring-[#3E3E3E] transition hover:bg-[#1DB954] hover:text-black hover:ring-[#1DB954]';
+        bAdd.className = 'open-add-to-playlist min-w-0 flex-1 rounded-full bg-transparent py-1.5 text-center text-xs font-semibold text-[#B3B3B3] ring-1 ring-[#3E3E3E] transition hover:bg-[#1DB954] hover:text-black hover:ring-[#1DB954]';
         bAdd.textContent = 'Add to playlist';
         bAdd.addEventListener('click', (ev) => {
             ev.stopPropagation();
@@ -926,6 +998,37 @@ class AppShellController {
             this.openAddToPlaylistPopover(hit, bAdd);
         });
         addRow.appendChild(bAdd);
+
+        const bLike = document.createElement('button');
+        bLike.type = 'button';
+        bLike.className = 'flex h-7 w-8 shrink-0 items-center justify-center rounded-full text-[#B3B3B3] ring-1 ring-[#3E3E3E] transition hover:bg-[#1DB954] hover:text-black hover:ring-[#1DB954] disabled:opacity-50';
+        bLike.title = 'Save to Liked Songs';
+        bLike.setAttribute('aria-label', 'Save to Liked Songs');
+        bLike.innerHTML = '<i class="fa-regular fa-heart text-xs"></i>';
+        bLike.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+            if (!this.syncLikedPlaylistId()) {
+                alert('Sign in to save songs to Liked Songs.');
+                return;
+            }
+            bLike.disabled = true;
+            try {
+                const data = await this.addHitToLikedSongs(hit);
+                const icon = bLike.querySelector('i');
+                if (icon) {
+                    icon.classList.remove('fa-regular');
+                    icon.classList.add('fa-solid');
+                }
+                bLike.classList.add('text-[#1DB954]');
+                bLike.title = 'Saved to Liked Songs';
+                await this.afterSavedToLikedSongs(data && data.playlist_id);
+            } catch (e) {
+                alert(e && e.message ? e.message : 'Could not save to Liked Songs.');
+                bLike.disabled = false;
+            }
+        });
+        addRow.appendChild(bLike);
         card.appendChild(addRow);
 
         return card;

@@ -728,6 +728,19 @@ class TrackLikeBody(BaseModel):
     liked: bool
 
 
+class LikedAddBody(BaseModel):
+    """A search hit saved straight to Liked Songs, no playlist in between."""
+
+    title: str = Field(..., min_length=1, max_length=300)
+    artist: Optional[str] = Field(None, max_length=300)
+    url: Optional[str] = None
+    album: Optional[str] = Field(None, max_length=300)
+    video_id: Optional[str] = None
+    quality: Optional[str] = None
+    source_playlist_id: Optional[str] = None
+    source_track_id: Optional[str] = None
+
+
 class TrackDetailsBody(BaseModel):
     title: str = Field(..., min_length=1, max_length=300)
     artist: str = Field("", max_length=300)
@@ -744,6 +757,33 @@ async def api_track_like(body: TrackLikeBody, request: Request):
             detail="Could not update like. The track may not be downloaded yet, or it may already be in Liked Songs.",
         )
     return JSONResponse({"ok": True, "liked": body.liked})
+
+
+@app.post("/api/liked-songs/add")
+async def api_liked_songs_add(body: LikedAddBody, request: Request):
+    """Add a song to the signed-in user's Liked Songs directly."""
+    uid = _owner_id(request, required=True)
+    track = await asyncio.to_thread(
+        service.add_track_to_liked_songs,
+        body.title.strip(),
+        (body.artist or "").strip(),
+        url=(body.url or "").strip() or None,
+        album=(body.album or "").strip() or None,
+        owner_id=uid,
+        video_id=(body.video_id or "").strip() or None,
+        download_quality=(body.quality or "192").strip() or "192",
+        source_playlist_id=(body.source_playlist_id or "").strip() or None,
+        source_track_id=(body.source_track_id or "").strip() or None,
+    )
+    if track is None:
+        raise HTTPException(status_code=400, detail="Could not save this song to Liked Songs.")
+    return JSONResponse(
+        {
+            "ok": True,
+            "playlist_id": service.liked_songs_id_for(uid),
+            "track": _track_payload_row(track),
+        }
+    )
 
 
 @app.get("/api/playlists/{playlist_id}/tracks/{track_id}/info")

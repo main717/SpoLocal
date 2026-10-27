@@ -464,6 +464,73 @@ class DownloadService:
                 return self.delete_track(liked_pl.id, t.id, unlink_media=False)
         return True
 
+    def add_track_to_liked_songs(
+        self,
+        title: str,
+        artist: str,
+        url: Optional[str] = None,
+        album: Optional[str] = None,
+        *,
+        owner_id: Optional[str] = None,
+        video_id: Optional[str] = None,
+        download_quality: str = str(DEFAULT_KBPS),
+        source_playlist_id: Optional[str] = None,
+        source_track_id: Optional[str] = None,
+    ) -> Optional[Track]:
+        """Save a song straight to Liked Songs, without a playlist in between.
+
+        A matching library copy is linked through ``set_track_liked`` so the
+        heart stays in sync with its source row. Otherwise the song is
+        downloaded into the Liked Songs folder and lives there on its own.
+        """
+        pid = self.liked_songs_id_for(owner_id)
+        liked_pl = self._ensure_liked_songs_playlist(owner_id)
+        if not pid or liked_pl is None:
+            return None
+
+        title_s = (title or "").strip()
+        if not title_s:
+            return None
+        artist_s = (artist or "").strip()
+        u = (url or "").strip() or None
+        yid = youtube_video_id_from_url(u) or (video_id or "").strip()
+
+        sp = (source_playlist_id or "").strip()
+        st = (source_track_id or "").strip()
+        if not (sp and st) and owner_id:
+            found = self.find_canonical_downloaded_source(
+                owner_id, yid, title_s, artist_s, exclude_playlist_id=pid
+            )
+            if found:
+                sp, st = found
+        if sp and st and self.set_track_liked(sp, st, True, owner_id):
+            for t in liked_pl.tracks:
+                if (t.liked_source_playlist_id or "").strip() == sp and (
+                    t.liked_source_track_id or ""
+                ).strip() == st:
+                    return t
+
+        for t in liked_pl.tracks:
+            if yid and self._youtube_video_id_for_track(t) == yid:
+                return t
+            if (
+                (t.title or "").strip().lower() == title_s.lower()
+                and (t.artist or "").strip().lower() == artist_s.lower()
+            ):
+                return t
+
+        track = Track.create(title=title_s, artist=artist_s, url=u)
+        album_s = (album or "").strip()
+        if album_s:
+            track.album = album_s[:500]
+        if yid:
+            track.youtube_video_id = yid
+        liked_pl.add_track(track)
+        self._enqueue_download(pid, track.id, quality=download_quality)
+        self._invalidate_hydration_cache(pid)
+        self._save_playlists()
+        return track
+
     def _reset_interrupted_downloads(self) -> None:
         """
         Any track left in 'downloading' state means the server was killed mid-download.
