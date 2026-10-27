@@ -990,10 +990,10 @@ class AppShellController {
         addRow.className = 'mt-3 flex items-center justify-center gap-2 px-0.5';
         const bAdd = document.createElement('button');
         bAdd.type = 'button';
-        bAdd.className = 'open-add-to-playlist flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#B3B3B3] ring-1 ring-[#3E3E3E] transition hover:bg-[#1DB954] hover:text-black hover:ring-[#1DB954] disabled:opacity-50';
+        bAdd.className = 'open-add-to-playlist flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#B3B3B3] ring-1 ring-[#3E3E3E] transition hover:bg-[#1DB954] hover:text-black hover:ring-[#1DB954] disabled:opacity-50';
         bAdd.title = 'Add to playlist';
         bAdd.setAttribute('aria-label', 'Add to playlist');
-        bAdd.innerHTML = '<i class="fa-solid fa-plus text-xs"></i>';
+        bAdd.innerHTML = '<i class="fa-solid fa-plus text-sm"></i>';
         bAdd.addEventListener('click', (ev) => {
             ev.stopPropagation();
             ev.preventDefault();
@@ -1003,10 +1003,10 @@ class AppShellController {
 
         const bLike = document.createElement('button');
         bLike.type = 'button';
-        bLike.className = 'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#B3B3B3] ring-1 ring-[#3E3E3E] transition hover:bg-[#1DB954] hover:text-black hover:ring-[#1DB954] disabled:opacity-50';
+        bLike.className = 'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[#B3B3B3] ring-1 ring-[#3E3E3E] transition hover:bg-[#1DB954] hover:text-black hover:ring-[#1DB954] disabled:opacity-50';
         bLike.title = 'Save to Liked Songs';
         bLike.setAttribute('aria-label', 'Save to Liked Songs');
-        bLike.innerHTML = '<i class="fa-regular fa-heart text-xs"></i>';
+        bLike.innerHTML = '<i class="fa-regular fa-heart text-sm"></i>';
         bLike.addEventListener('click', async (ev) => {
             ev.stopPropagation();
             ev.preventDefault();
