@@ -624,3 +624,34 @@ describe('init', () => {
         expect(transport.updatePlayingRow).toHaveBeenCalled();
     });
 });
+
+describe('seek_by_delta', () => {
+    it('moves the playhead forward and clamps to the duration', () => {
+        const { transport, hub } = make_transport({});
+        hub.audio.duration = 20;
+        hub.audio.currentTime = 12;
+        transport.seek_audio_to = vi.fn();
+        transport.seek_by_delta(5);
+        expect(transport.seek_audio_to).toHaveBeenCalledWith(17);
+        hub.audio.currentTime = 18;
+        transport.seek_by_delta(5);
+        expect(transport.seek_audio_to).toHaveBeenLastCalledWith(20);
+    });
+
+    it('never seeks before zero', () => {
+        const { transport, hub } = make_transport({});
+        hub.audio.duration = 200;
+        hub.audio.currentTime = 2;
+        transport.seek_audio_to = vi.fn();
+        transport.seek_by_delta(-5);
+        expect(transport.seek_audio_to).toHaveBeenCalledWith(0);
+    });
+
+    it('does nothing without an audio element', () => {
+        const { transport } = make_transport({});
+        transport.seek_audio_to = vi.fn();
+        transport.state.hub.audio = null;
+        transport.seek_by_delta(5);
+        expect(transport.seek_audio_to).not.toHaveBeenCalled();
+    });
+});

@@ -670,6 +670,7 @@
                         </g>
                     </svg>
                 </button>
+                <button type="button" id="player-seek-back" class="player-control-btn--muted w-8 h-8 rounded-full hover:text-white text-[11px] font-semibold tabular-nums leading-none shrink-0 flex items-center justify-center" title="Back 5 seconds" aria-label="Back 5 seconds">-5</button>
                 <button type="button" id="player-prev" class="w-11 h-11 lg:w-10 lg:h-10 rounded-full text-[#B3B3B3] hover:text-white shrink-0" title="Previous">
                     <i class="fa-solid fa-backward-step text-base"></i>
                 </button>
@@ -679,6 +680,7 @@
                 <button type="button" id="player-next" class="w-11 h-11 lg:w-10 lg:h-10 rounded-full text-[#B3B3B3] hover:text-white shrink-0" title="Next">
                     <i class="fa-solid fa-forward-step text-base"></i>
                 </button>
+                <button type="button" id="player-seek-fwd" class="player-control-btn--muted w-8 h-8 rounded-full hover:text-white text-[11px] font-semibold tabular-nums leading-none shrink-0 flex items-center justify-center" title="Forward 5 seconds" aria-label="Forward 5 seconds">+5</button>
                 <span id="player-repeat-wrap" class="shrink-0">
                     <button type="button" id="player-repeat" class="player-control-btn--muted w-10 h-10 lg:w-9 lg:h-9 rounded-full hover:text-white text-lg leading-none" title="Repeat: off" aria-pressed="false">
                         <i class="fa-solid fa-repeat text-[15px] lg:text-[13px]"></i>
@@ -717,7 +719,7 @@
         window.butterchurn = butterchurn && butterchurn.default ? butterchurn.default : butterchurn;
         window.dispatchEvent(new Event('spolocal-butterchurn-ready'));
     </script>
-        <script type="module" src="/static/js/PlaylistSession.mjs?v=133"></script>
+        <script type="module" src="/static/js/PlaylistSession.mjs?v=134"></script>
     <script type="module" src="/static/pwa/pwa-entry.js"></script>
     <script src="/static/js/app_shell.js?v=52" defer></script>
 </body>

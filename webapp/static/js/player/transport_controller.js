@@ -94,6 +94,8 @@ export class PlaylistTransportController {
 
         // Play/Pause controls
         if (hub.btnMainPlay) hub.btnMainPlay.addEventListener('click', () => this.toggle_main_play());
+        if (hub.btnSeekBack) hub.btnSeekBack.addEventListener('click', () => this.seek_by_delta(-5));
+        if (hub.btnSeekFwd) hub.btnSeekFwd.addEventListener('click', () => this.seek_by_delta(5));
         if (hub.btnPrev) hub.btnPrev.addEventListener('click', () => {
             try { console.debug('[PlaylistTransport] Prev clicked'); } catch (e) {}
             this.playAtDelta(-1);
@@ -565,6 +567,16 @@ export class PlaylistTransportController {
             return;
         }
         if (hub.audio) hub.audio.currentTime = t;
+    }
+
+    seek_by_delta(seconds) {
+        const hub = this.state.hub;
+        const audio = hub && hub.audio;
+        if (!audio) return;
+        const duration = isFinite(audio.duration) ? audio.duration : 0;
+        const target = (audio.currentTime || 0) + seconds;
+        this.seek_audio_to(Math.max(0, duration ? Math.min(duration, target) : Math.max(0, target)));
+        if (this.lyrics) this.lyrics.sync_stream_video_clock(true);
     }
 
     seek_to_time_from_slider() {
