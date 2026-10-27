@@ -312,6 +312,18 @@ class TestOwnership:
         assert resp.status_code == 200
         assert resp.json()["title"] == "Song 0"
 
+    def test_track_info_lists_playlists_with_the_song(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        mine = make_playlist(service, "Mine", user_id, tracks=1)
+        make_playlist(service, "Also", user_id, tracks=1)
+        make_playlist(service, "Other", user_id)
+        tid = mine.tracks[0].id
+        resp = client.get(f"/api/playlists/{mine.id}/tracks/{tid}/info")
+        assert resp.status_code == 200
+        playlists = resp.json()["playlists"]
+        assert [p["name"] for p in playlists] == ["Also", "Mine"]
+        assert [p["current"] for p in playlists] == [False, True]
+
     def test_track_info_non_owner_is_404(self, client, service, logged_in) -> None:
         other = make_playlist(service, "Other", "someone-else", tracks=1)
         tid = other.tracks[0].id

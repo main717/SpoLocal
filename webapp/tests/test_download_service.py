@@ -476,6 +476,67 @@ class TestLibraryMatches:
         assert service.find_canonical_downloaded_source("u1", "dQw4w9WgXcQ", "", "", exclude_playlist_id=pl.id) is None
 
 
+class TestPlaylistsForTrack:
+    def test_lists_every_playlist_with_the_song(self, service: DownloadService) -> None:
+        mine = service.create_playlist("Mine", owner_id="u1")
+        t = make_track("Song", "Artist", video_id="dQw4w9WgXcQ")
+        mine.add_track(t)
+        also = service.create_playlist("Also", owner_id="u1")
+        also.add_track(make_track("Song", "Artist", video_id="dQw4w9WgXcQ"))
+        service.create_playlist("Other", owner_id="u1")
+
+        rows = service.playlists_for_track(mine.id, t.id, "u1")
+        assert [r["name"] for r in rows] == ["Also", "Mine"]
+        assert [r["current"] for r in rows] == [False, True]
+
+    def test_matches_by_title_and_artist(self, service: DownloadService) -> None:
+        mine = service.create_playlist("Mine", owner_id="u1")
+        t = make_track("  Song  ", "Artist")
+        mine.add_track(t)
+        also = service.create_playlist("Also", owner_id="u1")
+        also.add_track(make_track("song", "artist"))
+
+        assert [r["id"] for r in service.playlists_for_track(mine.id, t.id, "u1")] == [also.id, mine.id]
+
+    def test_matches_by_shared_audio_file(self, service: DownloadService, temp_root: Path) -> None:
+        write_media(temp_root, "youtube/a.opus")
+        mine = service.create_playlist("Mine", owner_id="u1")
+        t = make_track("Song", "Artist", variants={"192": "youtube/a.opus"})
+        mine.add_track(t)
+        also = service.create_playlist("Also", owner_id="u1")
+        alias = make_track("Renamed", "Other", variants={"192": "youtube/a.opus"})
+        also.add_track(alias)
+
+        assert [r["id"] for r in service.playlists_for_track(mine.id, t.id, "u1")] == [also.id, mine.id]
+
+    def test_is_owner_scoped(self, service: DownloadService) -> None:
+        mine = service.create_playlist("Mine", owner_id="u1")
+        t = make_track("Song", "Artist", video_id="dQw4w9WgXcQ")
+        mine.add_track(t)
+        other = service.create_playlist("Other", owner_id="u2")
+        other.add_track(make_track("Song", "Artist", video_id="dQw4w9WgXcQ"))
+
+        assert [r["id"] for r in service.playlists_for_track(mine.id, t.id, "u1")] == [mine.id]
+        assert service.playlists_for_track(mine.id, t.id, None) == []
+
+    def test_unknown_playlist_or_track_returns_empty(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mine", owner_id="u1")
+        t = make_track()
+        pl.add_track(t)
+        assert service.playlists_for_track("missing", t.id, "u1") == []
+        assert service.playlists_for_track(pl.id, "missing", "u1") == []
+
+    def test_track_info_includes_playlists(self, service: DownloadService) -> None:
+        mine = service.create_playlist("Mine", owner_id="u1")
+        t = make_track("Song", "Artist", video_id="dQw4w9WgXcQ")
+        mine.add_track(t)
+        also = service.create_playlist("Also", owner_id="u1")
+        also.add_track(make_track("Song", "Artist", video_id="dQw4w9WgXcQ"))
+
+        info = service.get_track_info(mine.id, t.id, "u1")
+        assert [p["id"] for p in info["playlists"]] == [also.id, mine.id]
+
+
 class TestLikedSongs:
     def test_like_requires_downloaded_file(self, service: DownloadService) -> None:
         pl = service.create_playlist("Mine", owner_id="u1")

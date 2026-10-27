@@ -1072,7 +1072,7 @@ class DownloadService:
             self._save_playlists(immediate=False)
         return track.loudness_gain_db
 
-    def get_track_info(self, playlist_id: str, track_id: str) -> Optional[dict]:
+    def get_track_info(self, playlist_id: str, track_id: str, owner_id: Optional[str] = None) -> Optional[dict]:
         pl = self.get_playlist(playlist_id.strip())
         if not pl:
             return None
@@ -1109,6 +1109,7 @@ class DownloadService:
             "youtube_video_id": track.youtube_video_id or "",
             "error": track.error or "",
             "files": files,
+            "playlists": self.playlists_for_track(playlist_id, track_id, owner_id),
         }
 
     def _track_audio_files(self, track: Track) -> List[Path]:
@@ -1426,6 +1427,53 @@ class DownloadService:
                         "play_variants": dict(t.play_variants() or {}),
                     }
                 )
+        return rows
+
+    def _track_media_relpaths(self, track: Track) -> set[str]:
+        rels: set[str] = set()
+        if track.media_relpath:
+            rels.add(track.media_relpath)
+        for rel in (track.media_variants or {}).values():
+            if rel:
+                rels.add(rel)
+        return rels
+
+    def playlists_for_track(
+        self, playlist_id: str, track_id: str, owner_id: Optional[str] = None
+    ) -> List[dict]:
+        """Owner-scoped playlists that hold the same song (video id, metadata, or audio file)."""
+        pl = self.get_playlist(playlist_id.strip())
+        if not pl:
+            return []
+        self.hydrate_media_paths(pl, persist=False)
+        track = pl.get_track(track_id.strip())
+        if not track:
+            return []
+        vid = self._youtube_video_id_for_track(track)
+        want_title = self._norm_meta(track.title)
+        want_artist = self._norm_meta(track.artist)
+        rels = self._track_media_relpaths(track)
+        rows: List[dict] = []
+        for other in self.list_playlists_for_user(owner_id):
+            self.hydrate_media_paths(other, persist=False)
+            for t in other.tracks:
+                same_vid = bool(vid and vid == self._youtube_video_id_for_track(t))
+                same_meta = bool(
+                    want_title
+                    and want_artist
+                    and want_title == self._norm_meta(t.title)
+                    and want_artist == self._norm_meta(t.artist)
+                )
+                same_file = bool(rels and rels & self._track_media_relpaths(t))
+                if same_vid or same_meta or same_file:
+                    rows.append(
+                        {
+                            "id": other.id,
+                            "name": other.name or "",
+                            "current": other.id == pl.id,
+                        }
+                    )
+                    break
         return rows
 
     def find_canonical_downloaded_source(

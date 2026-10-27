@@ -797,7 +797,7 @@ async def api_liked_songs_add(body: LikedAddBody, request: Request):
 @app.get("/api/playlists/{playlist_id}/tracks/{track_id}/info")
 async def api_track_info(playlist_id: str, track_id: str, request: Request):
     _owned_playlist_or_404(request, playlist_id)
-    info = service.get_track_info(playlist_id, track_id)
+    info = service.get_track_info(playlist_id, track_id, _owner_id(request))
     if not info:
         raise HTTPException(status_code=404, detail="Track not found")
     return JSONResponse(info)

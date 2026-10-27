@@ -158,6 +158,20 @@ export class TrackInfoController {
             html += '<dd class="text-white min-w-0 break-words">' + this._esc(value) + '</dd></div>';
         }
         html += '</dl>';
+        const playlists = Array.isArray(data.playlists) ? data.playlists : [];
+        if (playlists.length) {
+            html += '<div class="pt-2 border-t border-[#3E3E3E]"><h3 class="text-xs font-semibold text-[#B3B3B3] uppercase tracking-wider mb-2">In playlists</h3>';
+            html += '<ul class="space-y-1">';
+            for (const pl of playlists) {
+                html += '<li class="flex items-center gap-2 min-w-0">';
+                html += '<a class="text-white hover:text-[#1DB954] truncate" href="/?playlist_id=' + encodeURIComponent(pl.id || '') + '">' + this._esc(pl.name || 'Untitled') + '</a>';
+                if (pl.current) {
+                    html += '<span class="text-[10px] font-semibold uppercase tracking-wide text-[#1DB954] shrink-0">Current</span>';
+                }
+                html += '</li>';
+            }
+            html += '</ul></div>';
+        }
         if (files.length) {
             html += '<div class="pt-2 border-t border-[#3E3E3E]"><h3 class="text-xs font-semibold text-[#B3B3B3] uppercase tracking-wider mb-2">Files on disk</h3>';
             html += '<div class="space-y-3">';

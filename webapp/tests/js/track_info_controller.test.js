@@ -379,6 +379,31 @@ describe('_render', () => {
         expect(html).not.toContain('<i>A</i>');
     });
 
+    it('lists the playlists that contain the song', () => {
+        const controller = make_controller();
+        controller.init();
+        controller._render({
+            title: 'Song',
+            status: 'done',
+            playlists: [
+                { id: 'p1', name: 'Mine', current: true },
+                { id: 'p2', name: 'Road trip', current: false },
+            ],
+        }, 't1');
+        const links = Array.from(document.querySelectorAll('#track-info-body a'));
+        expect(links.map((a) => a.textContent)).toEqual(['Mine', 'Road trip']);
+        expect(links.map((a) => a.getAttribute('href'))).toEqual(['/?playlist_id=p1', '/?playlist_id=p2']);
+        expect(body_text()).toContain('In playlists');
+        expect(body_text()).toContain('Current');
+    });
+
+    it('skips the playlist block without playlists', () => {
+        const controller = make_controller();
+        controller.init();
+        controller._render({ title: 'Song', status: 'done' }, 't1');
+        expect(body_text()).not.toContain('In playlists');
+    });
+
     it('does nothing without the body element', () => {
         const controller = make_controller();
         expect(() => controller._render({ title: 'Song' }, 't1')).not.toThrow();
