@@ -731,3 +731,31 @@ class TestLoudnessOffset:
     def test_unknown_track_returns_none(self, service: DownloadService) -> None:
         pl = service.create_playlist("Mix", owner_id="u1")
         assert service.set_loudness_offset(pl.id, "nope", 1.0) is None
+
+
+class TestWorkerCount:
+    def test_set_worker_count_clamps_persists_and_reports(
+        self, service: DownloadService, temp_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(service, "_spawn_workers", lambda n: None)
+        assert service.set_worker_count(4) == 4
+        assert service.worker_count() == 4
+        settings_file = temp_root / "webapp_settings.json"
+        assert json.loads(settings_file.read_text(encoding="utf-8")) == {"download_workers": 4}
+
+        assert service.set_worker_count(99) == 8
+        assert service.set_worker_count(0) == 1
+        assert json.loads(settings_file.read_text(encoding="utf-8"))["download_workers"] == 1
+
+    def test_saved_count_survives_a_restart(
+        self, service: DownloadService, temp_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(service, "_spawn_workers", lambda n: None)
+        service.set_worker_count(5)
+        monkeypatch.setattr(DownloadService, "_spawn_workers", lambda self, n: None)
+        restarted = DownloadService(temp_root)
+        assert restarted.worker_count() == 5
+
+    def test_missing_settings_file_falls_back_to_the_worker_count(self, service: DownloadService) -> None:
+        # conftest pins the environment default to 0, so nothing is spawned in tests.
+        assert service.worker_count() == 0

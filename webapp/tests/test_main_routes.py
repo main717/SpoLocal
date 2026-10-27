@@ -640,3 +640,27 @@ class TestLoudnessOffset:
         )
         body = client.get(f"/api/playlists/{pl.id}/tracks/{tid}/loudness-gain").json()
         assert body == {"loudness_gain_db": -7.0, "loudness_offset_db": 1.5}
+
+
+class TestDownloadWorkers:
+    def test_requires_login(self, client) -> None:
+        assert client.get("/api/settings/download-workers").status_code == 401
+        assert client.post("/api/settings/download-workers", json={"workers": 3}).status_code == 401
+
+    def test_get_reports_the_current_count(self, client, service, logged_in, monkeypatch) -> None:
+        monkeypatch.setattr(service, "_spawn_workers", lambda n: None)
+        service.set_worker_count(3)
+        assert client.get("/api/settings/download-workers").json() == {"workers": 3}
+
+    def test_post_updates_and_persists(self, client, service, logged_in, monkeypatch) -> None:
+        monkeypatch.setattr(service, "_spawn_workers", lambda n: None)
+        resp = client.post("/api/settings/download-workers", json={"workers": 6})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"workers": 6}
+        assert service.worker_count() == 6
+        assert client.get("/api/settings/download-workers").json() == {"workers": 6}
+
+    @pytest.mark.parametrize("workers", [0, 9])
+    def test_out_of_range_is_rejected(self, client, logged_in, workers) -> None:
+        resp = client.post("/api/settings/download-workers", json={"workers": workers})
+        assert resp.status_code == 422

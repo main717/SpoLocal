@@ -154,7 +154,12 @@ def _playlist_from_dict(pdata: dict) -> Playlist:
     )
 
 
+_WORKER_LIMIT_MIN = 1
+_WORKER_LIMIT_MAX = 8
+
+
 def _download_worker_count() -> int:
+    """Initial worker count from the environment (Settings overrides it once saved)."""
     try:
         n = int(
             (
@@ -165,7 +170,40 @@ def _download_worker_count() -> int:
         )
     except ValueError:
         n = 2
-    return max(1, min(n, 8))
+    return max(_WORKER_LIMIT_MIN, min(n, _WORKER_LIMIT_MAX))
+
+
+def _clamp_worker_count(n: int) -> int:
+    return max(_WORKER_LIMIT_MIN, min(int(n), _WORKER_LIMIT_MAX))
+
+
+class _WorkerGate:
+    """Caps concurrent download jobs; the cap can change at runtime."""
+
+    def __init__(self, limit: int) -> None:
+        self._cond = threading.Condition()
+        self._limit = limit
+        self._active = 0
+
+    def acquire(self) -> None:
+        with self._cond:
+            while self._active >= self._limit:
+                self._cond.wait()
+            self._active += 1
+
+    def release(self) -> None:
+        with self._cond:
+            self._active -= 1
+            self._cond.notify_all()
+
+    def set_limit(self, limit: int) -> None:
+        with self._cond:
+            self._limit = limit
+            self._cond.notify_all()
+
+    def limit(self) -> int:
+        with self._cond:
+            return self._limit
 
 
 class _HydrationCacheEntry:
@@ -180,7 +218,10 @@ class _HydrationCacheEntry:
 
 
 class DownloadService:
-    """Download work is spread across N background threads (SPOLOCAL_DOWNLOAD_WORKERS, default 2)."""
+    """Download work is spread across background threads (SPOLOCAL_DOWNLOAD_WORKERS, default 2).
+
+    The concurrency cap is a live gate, so Settings can raise or lower it without a restart.
+    """
 
     LIKED_SONGS_PLAYLIST_ID = "spolocal_liked_songs"
     LIKED_SONGS_PLAYLIST_NAME = "Liked Songs"
@@ -223,17 +264,57 @@ class DownloadService:
 
         set_track_status_change_listener(self._invalidate_error_rows_cache)
 
-        n = _download_worker_count()
-        for i in range(n):
-            threading.Thread(
-                target=self._worker_main, name=f"spolocal-dl-{i}", daemon=True
-            ).start()
+        self._worker_gate = _WorkerGate(self._load_worker_count())
+        self._worker_threads: List[threading.Thread] = []
+        self._spawn_workers(self._worker_gate.limit())
 
     def _data_file(self) -> Path:
         override = (os.environ.get("SPLOCAL_PLAYLISTS_PATH") or "").strip()
         if override:
             return Path(override)
         return self.root / "webapp_playlists.json"
+
+    def _settings_file(self) -> Path:
+        """Server-wide preferences, kept next to (but out of) the playlist file."""
+        return self._data_file().parent / "webapp_settings.json"
+
+    def _load_worker_count(self) -> int:
+        try:
+            raw = json.loads(self._settings_file().read_text(encoding="utf-8"))
+            n = int(raw["download_workers"])
+        except (OSError, ValueError, TypeError, KeyError):
+            return _download_worker_count()
+        return _clamp_worker_count(n)
+
+    def _save_worker_count(self, n: int) -> None:
+        path = self._settings_file()
+        tmp = path.with_suffix(".json.tmp")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps({"download_workers": n}, indent=2) + "\n", encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError:
+            logging.getLogger(__name__).warning("Could not persist download worker count", exc_info=True)
+
+    def _spawn_workers(self, n: int) -> None:
+        while len(self._worker_threads) < n:
+            i = len(self._worker_threads)
+            thread = threading.Thread(
+                target=self._worker_main, name=f"spolocal-dl-{i}", daemon=True
+            )
+            thread.start()
+            self._worker_threads.append(thread)
+
+    def worker_count(self) -> int:
+        return self._worker_gate.limit()
+
+    def set_worker_count(self, n: int) -> int:
+        """Change the concurrency cap now and persist it. Extra threads are never killed."""
+        n = _clamp_worker_count(n)
+        self._worker_gate.set_limit(n)
+        self._spawn_workers(n)
+        self._save_worker_count(n)
+        return n
 
     def _invalidate_error_rows_cache(self) -> None:
         self._error_rows_cache = None
@@ -1838,11 +1919,13 @@ class DownloadService:
 
         while True:
             job = self.job_queue.get()
+            self._worker_gate.acquire()
             try:
                 job(local_ytdlp)
             except Exception:
                 logging.getLogger(__name__).exception("Download worker job failed")
             finally:
+                self._worker_gate.release()
                 self.job_queue.task_done()
 
     def spotify_url_search_query(self, raw: str) -> Optional[str]:

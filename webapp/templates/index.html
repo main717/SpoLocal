@@ -192,6 +192,19 @@
                     </div>
                 </div>
                 <div class="settings-section">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <h3 class="text-sm font-semibold text-white">Parallel downloads</h3>
+                        <span id="settings-workers-value" class="text-xs text-[#1DB954] tabular-nums">2</span>
+                    </div>
+                    <p class="text-xs text-[#727272] mb-2">Songs downloading at the same time.</p>
+                    <input type="range" id="settings-workers" min="1" max="8" step="1" value="2" class="w-full" aria-label="Parallel downloads">
+                    <div class="flex items-center justify-between mt-1">
+                        <span class="text-[10px] text-[#727272]">1</span>
+                        <button type="button" id="settings-workers-reset" class="text-[10px] font-semibold text-[#B3B3B3] hover:text-white">Reset</button>
+                        <span class="text-[10px] text-[#727272]">8</span>
+                    </div>
+                </div>
+                <div class="settings-section">
                     <h3 class="text-sm font-semibold text-white mb-1">Rebuild library</h3>
                     <p class="text-xs text-[#727272] mb-3">Re-download every song in both Data Saver and Highest, and delete all other formats.</p>
                     <button type="button"
@@ -734,7 +747,7 @@
         window.butterchurn = butterchurn && butterchurn.default ? butterchurn.default : butterchurn;
         window.dispatchEvent(new Event('spolocal-butterchurn-ready'));
     </script>
-        <script type="module" src="/static/js/PlaylistSession.mjs?v=140"></script>
+        <script type="module" src="/static/js/PlaylistSession.mjs?v=141"></script>
     <script type="module" src="/static/pwa/pwa-entry.js"></script>
     <script src="/static/js/app_shell.js?v=52" defer></script>
 </body>

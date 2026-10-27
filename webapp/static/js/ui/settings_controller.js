@@ -9,6 +9,7 @@ export class SettingsController {
         this.transport = null;
         /** @type {import('../services/download_controller.js').PlaylistDownloadController|null} */
         this.download = null;
+        this._workers_timer = null;
     }
 
     setCrossRefs(transport, download) {
@@ -32,6 +33,9 @@ export class SettingsController {
         hub.settingsRateReset = document.getElementById('settings-rate-reset');
         hub.btnRate = document.getElementById('player-rate');
         hub.settingsReloadLibrary = document.getElementById('settings-reload-library');
+        hub.settingsWorkers = document.getElementById('settings-workers');
+        hub.settingsWorkersValue = document.getElementById('settings-workers-value');
+        hub.settingsWorkersReset = document.getElementById('settings-workers-reset');
 
         if (hub.settingsOpenBtn) {
             hub.settingsOpenBtn.addEventListener('click', () => this.open());
@@ -92,6 +96,23 @@ export class SettingsController {
             hub.settingsReloadLibrary.addEventListener('click', () => this.reload_library());
         }
 
+        if (hub.settingsWorkers) {
+            hub.settingsWorkers.addEventListener('input', () => {
+                this._apply_worker_count(hub.settingsWorkers.value);
+                this._schedule_worker_save();
+            });
+            hub.settingsWorkers.addEventListener('change', () => {
+                clearTimeout(this._workers_timer);
+                this.save_worker_count();
+            });
+        }
+        if (hub.settingsWorkersReset) {
+            hub.settingsWorkersReset.addEventListener('click', () => {
+                this._apply_worker_count(2);
+                this.save_worker_count();
+            });
+        }
+
         if (hub.settingsRate) {
             hub.settingsRate.addEventListener('input', () => {
                 if (self.transport) self.transport.set_playback_rate(hub.settingsRate.value);
@@ -122,6 +143,7 @@ export class SettingsController {
         const hub = this.state.hub;
         if (!hub.settingsModal) return;
         this.sync_ui();
+        if (hub.settingsWorkers) this.load_worker_count();
         hub.settingsModal.classList.remove('hidden');
     }
 
@@ -156,6 +178,61 @@ export class SettingsController {
         const norm_prefs = window.SpolocalNormalizationPrefs;
         if (norm_prefs && hub.settingsNormalizeLoudness) {
             hub.settingsNormalizeLoudness.checked = norm_prefs.enabled();
+        }
+    }
+
+    _clamp_workers(value) {
+        const n = parseInt(value, 10);
+        if (!Number.isFinite(n)) return 2;
+        return Math.min(8, Math.max(1, n));
+    }
+
+    _apply_worker_count(value) {
+        const hub = this.state.hub;
+        const n = this._clamp_workers(value);
+        if (hub.settingsWorkers) hub.settingsWorkers.value = String(n);
+        if (hub.settingsWorkersValue) hub.settingsWorkersValue.textContent = String(n);
+    }
+
+    _schedule_worker_save() {
+        clearTimeout(this._workers_timer);
+        this._workers_timer = setTimeout(() => this.save_worker_count(), 300);
+    }
+
+    /** Read the server-side concurrency cap, which is not per-device. */
+    async load_worker_count() {
+        const hub = this.state.hub;
+        if (!hub.settingsWorkers) return;
+        try {
+            const r = await fetch('/api/settings/download-workers', { credentials: 'same-origin' });
+            if (!r.ok) return;
+            const data = await r.json();
+            this._apply_worker_count(data.workers);
+        } catch (e) {
+            /* keep the slider as-is */
+        }
+    }
+
+    async save_worker_count() {
+        const hub = this.state.hub;
+        if (!hub.settingsWorkers) return;
+        const n = this._clamp_workers(hub.settingsWorkers.value);
+        this._apply_worker_count(n);
+        try {
+            const r = await fetch('/api/settings/download-workers', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ workers: n }),
+            });
+            if (!r.ok) return;
+            const data = await r.json();
+            this._apply_worker_count(data.workers);
+        } catch (e) {
+            /* the slider keeps the chosen value; the next open re-reads the server */
         }
     }
 

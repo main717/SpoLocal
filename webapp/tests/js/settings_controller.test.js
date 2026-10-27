@@ -357,3 +357,92 @@ describe('open and close', () => {
         expect(hub.settingsModal.classList.contains('hidden')).toBe(true);
     });
 });
+
+describe('parallel downloads', () => {
+    function mount_workers() {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = `
+            <input type="range" id="settings-workers" min="1" max="8" step="1" value="2">
+            <span id="settings-workers-value">2</span>
+            <button type="button" id="settings-workers-reset"></button>
+        `;
+        document.getElementById('settings-modal').appendChild(wrap);
+    }
+
+    async function flush() {
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+    }
+
+    it('caches the worker elements and shows the current count', () => {
+        mount_workers();
+        const { controller, hub } = make_controller();
+        controller.init();
+        expect(hub.settingsWorkers).toBe(document.getElementById('settings-workers'));
+        expect(hub.settingsWorkersValue).toBe(document.getElementById('settings-workers-value'));
+        expect(hub.settingsWorkersValue.textContent).toBe('2');
+    });
+
+    it('labels the slider while dragging and posts once on release', async () => {
+        mount_workers();
+        const fetch_mock = vi.fn(async () => json_response({ workers: 5 }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const { controller, hub } = make_controller();
+        controller.init();
+
+        hub.settingsWorkers.value = '5';
+        hub.settingsWorkers.dispatchEvent(new Event('input'));
+        expect(hub.settingsWorkersValue.textContent).toBe('5');
+        expect(fetch_mock).not.toHaveBeenCalled();
+
+        hub.settingsWorkers.dispatchEvent(new Event('change'));
+        await flush();
+
+        expect(fetch_mock).toHaveBeenCalledTimes(1);
+        const [url, options] = fetch_mock.mock.calls[0];
+        expect(url).toBe('/api/settings/download-workers');
+        expect(options.method).toBe('POST');
+        expect(options.body).toBe('{"workers":5}');
+    });
+
+    it('reset goes back to two workers', async () => {
+        mount_workers();
+        const fetch_mock = vi.fn(async () => json_response({ workers: 2 }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const { controller, hub } = make_controller();
+        controller.init();
+        hub.settingsWorkers.value = '7';
+
+        document.getElementById('settings-workers-reset').click();
+        await flush();
+
+        expect(hub.settingsWorkers.value).toBe('2');
+        expect(hub.settingsWorkersValue.textContent).toBe('2');
+        expect(fetch_mock.mock.calls[0][1].body).toBe('{"workers":2}');
+    });
+
+    it('loads the server count when the modal opens', async () => {
+        mount_workers();
+        const fetch_mock = vi.fn(async () => json_response({ workers: 7 }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const { controller, hub } = make_controller();
+        controller.init();
+
+        controller.open();
+        await flush();
+
+        expect(fetch_mock.mock.calls[0][0]).toBe('/api/settings/download-workers');
+        expect(hub.settingsWorkers.value).toBe('7');
+        expect(hub.settingsWorkersValue.textContent).toBe('7');
+    });
+
+    it('keeps the slider usable when the request fails', async () => {
+        mount_workers();
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline'); }));
+        const { controller, hub } = make_controller();
+        controller.init();
+        hub.settingsWorkers.value = '4';
+        hub.settingsWorkers.dispatchEvent(new Event('change'));
+        await expect(controller.save_worker_count()).resolves.toBeUndefined();
+        expect(hub.settingsWorkersValue.textContent).toBe('4');
+    });
+});

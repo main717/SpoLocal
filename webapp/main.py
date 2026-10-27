@@ -876,6 +876,23 @@ async def api_storage():
     return JSONResponse(await asyncio.to_thread(_storage_payload))
 
 
+class DownloadWorkersBody(BaseModel):
+    workers: int = Field(..., ge=1, le=8)
+
+
+@app.get("/api/settings/download-workers")
+async def api_get_download_workers(request: Request):
+    _owner_id(request, required=True)
+    return JSONResponse({"workers": service.worker_count()})
+
+
+@app.post("/api/settings/download-workers")
+async def api_set_download_workers(body: DownloadWorkersBody, request: Request):
+    _owner_id(request, required=True)
+    n = await asyncio.to_thread(service.set_worker_count, body.workers)
+    return JSONResponse({"workers": n})
+
+
 _storage_cache: dict[str, Any] = {"at": 0.0, "payload": None}
 
 
