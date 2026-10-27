@@ -33,7 +33,6 @@ function mountHomeDom() {
     document.body.innerHTML = `
         <div id="home-stats"></div>
         <div id="home-story-track"></div>
-        <div id="home-story-dots"></div>
         <button id="home-story-prev"></button>
         <button id="home-story-next"></button>
         <div id="home-top-playlists"></div>
@@ -243,14 +242,6 @@ describe('story carousel', () => {
         expect(track_el.scrollTo).toHaveBeenCalledWith({ left: 600, behavior: 'smooth' });
     });
 
-    it('scrolls to the card behind a dot', () => {
-        const track_el = layoutCarousel();
-        renderStories();
-        const dots = document.querySelectorAll('#home-story-dots .home-story-dot');
-        expect(dots.length).toBeGreaterThan(1);
-        dots[1].click();
-        expect(track_el.scrollTo).toHaveBeenCalledWith({ left: 600, behavior: 'smooth' });
-    });
 });
 
 describe('random toggle', () => {

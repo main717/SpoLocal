@@ -238,7 +238,6 @@ export class PlaylistHomeViewController {
     render_stories(data) {
         const track_el = document.getElementById('home-story-track');
         if (!track_el) return;
-        const dots = document.getElementById('home-story-dots');
         const stories = this.build_stories(data);
         const sig = JSON.stringify(stories.map((s) => [s.kicker, s.value, s.meta, s.art || '', !!s.empty]));
         if (sig === this._sig.stories) {
@@ -248,15 +247,6 @@ export class PlaylistHomeViewController {
         this._sig.stories = sig;
         this._storyScroll = track_el.scrollLeft;
         track_el.replaceChildren(...stories.map((story) => this.story_card(story)));
-        if (dots) {
-            dots.replaceChildren(...stories.map((story, index) => {
-                const dot = Dom.el('button', 'home-story-dot');
-                dot.type = 'button';
-                dot.setAttribute('aria-label', 'Highlight ' + (index + 1));
-                dot.addEventListener('click', () => this.scroll_to_story(index));
-                return dot;
-            }));
-        }
         this.bind_story_controls();
         requestAnimationFrame(() => {
             track_el.scrollLeft = this._storyScroll;
@@ -338,16 +328,8 @@ export class PlaylistHomeViewController {
     sync_story_ui() {
         const track_el = document.getElementById('home-story-track');
         if (!track_el || !track_el.clientWidth) return;
-        const dots = document.getElementById('home-story-dots');
         const prev = document.getElementById('home-story-prev');
         const next = document.getElementById('home-story-next');
-        const step = this.story_step();
-        const index = step ? Math.round(track_el.scrollLeft / step) : 0;
-        if (dots) {
-            Array.from(dots.children).forEach((dot, i) => {
-                dot.classList.toggle('home-story-dot--active', i === index);
-            });
-        }
         if (prev) prev.disabled = track_el.scrollLeft <= 2;
         if (next) next.disabled = track_el.scrollLeft + track_el.clientWidth >= track_el.scrollWidth - 2;
     }
