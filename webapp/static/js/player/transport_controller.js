@@ -55,6 +55,7 @@ export class PlaylistTransportController {
 
         this.loadTransportPrefs();
         if (typeof this.load_volume_pref === 'function') this.load_volume_pref();
+        this.load_playback_rate();
         // Which list the current playback belongs to: 'playlist', 'library'
         // (home / most played) or 'recs' (recommendations / radio mix).
         hub.playbackContext = 'playlist';
@@ -166,6 +167,7 @@ export class PlaylistTransportController {
 
         hub.audio.addEventListener('loadstart', (event) => {
             hub._audioLoadStartTimestamp = event.timeStamp;
+            this.apply_playback_rate();
             this.release_stream_cache_for_src();
         });
 
@@ -322,6 +324,57 @@ export class PlaylistTransportController {
         hub.volumeIconEl.className =
             'fa-solid text-xs shrink-0 w-4 text-center ' +
             (v === 0 ? 'fa-volume-xmark' : v < 0.45 ? 'fa-volume-low' : 'fa-volume-high');
+    }
+
+    /** Playback speed, persisted in localStorage and reapplied after every load. */
+    load_playback_rate() {
+        const hub = this.state.hub;
+        let rate = 1;
+        try {
+            const raw = parseFloat(localStorage.getItem(hub.LS_RATE));
+            if (Number.isFinite(raw)) rate = raw;
+        } catch (e) {}
+        this.playback_rate = this.clamp_playback_rate(rate);
+        this.apply_playback_rate();
+    }
+
+    clamp_playback_rate(rate) {
+        const n = Number(rate);
+        if (!Number.isFinite(n)) return 1;
+        return Math.min(2, Math.max(0.5, Math.round(n * 100) / 100));
+    }
+
+    set_playback_rate(rate) {
+        const hub = this.state.hub;
+        this.playback_rate = this.clamp_playback_rate(rate);
+        try { localStorage.setItem(hub.LS_RATE, String(this.playback_rate)); } catch (e) {}
+        this.apply_playback_rate();
+        if (this.mediaSession) this.mediaSession.updateMediaSessionPlaybackState();
+        return this.playback_rate;
+    }
+
+    apply_playback_rate() {
+        const hub = this.state.hub;
+        const rate = this.playback_rate || 1;
+        if (hub && hub.audio) {
+            try {
+                hub.audio.defaultPlaybackRate = rate;
+                hub.audio.playbackRate = rate;
+            } catch (e) {}
+        }
+        this.update_playback_rate_ui();
+    }
+
+    update_playback_rate_ui() {
+        const hub = this.state.hub;
+        const rate = this.playback_rate || 1;
+        const label = (rate === 1 ? '1' : String(rate)) + 'x';
+        if (hub.btnRate) hub.btnRate.textContent = label;
+        const slider = document.getElementById('settings-rate');
+        if (slider && parseFloat(slider.value) !== rate) slider.value = String(rate);
+        const value = document.getElementById('settings-rate-value');
+        if (value) value.textContent = label;
+        if (hub.btnRate) hub.btnRate.classList.toggle('text-[#1DB954]', rate !== 1);
     }
 
     /** Library entries that can actually be played, from the pool or a given list. */

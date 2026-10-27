@@ -1,4 +1,4 @@
-import { PlaylistTransportController } from '../player/transport_controller.js?v=118';
+import { PlaylistTransportController } from '../player/transport_controller.js?v=119';
 import { PlaylistLikeController } from '../player/like_controller.js?v=1';
 import { PlaylistShuffleController } from '../player/shuffle_controller.js?v=5';
 import { PlaylistMediaSessionController } from '../player/media_session_controller.js?v=1';
@@ -11,7 +11,7 @@ import { PlaylistDownloadController } from '../services/download_controller.js?v
 import { PlaylistColumnResizer } from '../ui/column_resizer.js';
 import { PlaylistHomeViewController } from './home_view_controller.js?v=93';
 import { PlaylistPlayLog } from './play_log.js?v=2';
-import { SettingsController } from '../ui/settings_controller.js?v=2';
+import { SettingsController } from '../ui/settings_controller.js?v=3';
 import { AccountController } from '../ui/account_controller.js?v=3';
 import { TrackInfoController } from '../ui/track_info_controller.js';
 import { TrackEditController } from '../ui/track_edit_controller.js';
@@ -313,6 +313,7 @@ export class PlaylistSessionController {
         hub.btnNext = document.getElementById('player-next');
         hub.btnSeekBack = document.getElementById('player-seek-back');
         hub.btnSeekFwd = document.getElementById('player-seek-fwd');
+        hub.btnRate = document.getElementById('player-rate');
         hub.btnShuffle = document.getElementById('player-shuffle');
         hub.btnRepeat = document.getElementById('player-repeat');
         hub.repeatOneBadge = document.getElementById('player-repeat-one-badge');
@@ -345,6 +346,7 @@ export class PlaylistSessionController {
         hub.LS_SHUFFLE_ORDER = 'spolocal_shuffle_order_v1';
         hub.LS_REPEAT = 'spolocal_repeat';
         hub.LS_VOLUME = 'spolocal_volume';
+        hub.LS_RATE = 'spolocal_playback_rate';
         hub.LS_LAST_PL = 'spolocal_last_playlist_id';
         hub.LS_LAST_TR = 'spolocal_last_track_id';
         hub.LS_LAST_POS = 'spolocal_last_time_sec';

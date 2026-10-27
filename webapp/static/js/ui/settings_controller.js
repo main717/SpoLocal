@@ -28,6 +28,9 @@ export class SettingsController {
         hub.settingsDownloadValue = document.getElementById('settings-download-kbps-value');
         hub.settingsLibraryDownloadTiers = document.getElementById('settings-library-download-tiers');
         hub.settingsNormalizeLoudness = document.getElementById('settings-normalize-loudness');
+        hub.settingsRate = document.getElementById('settings-rate');
+        hub.settingsRateReset = document.getElementById('settings-rate-reset');
+        hub.btnRate = document.getElementById('player-rate');
         hub.settingsReloadLibrary = document.getElementById('settings-reload-library');
 
         if (hub.settingsOpenBtn) {
@@ -89,6 +92,20 @@ export class SettingsController {
             hub.settingsReloadLibrary.addEventListener('click', () => this.reload_library());
         }
 
+        if (hub.settingsRate) {
+            hub.settingsRate.addEventListener('input', () => {
+                if (self.transport) self.transport.set_playback_rate(hub.settingsRate.value);
+            });
+        }
+        if (hub.settingsRateReset) {
+            hub.settingsRateReset.addEventListener('click', () => {
+                if (self.transport) self.transport.set_playback_rate(1);
+            });
+        }
+        if (hub.btnRate) {
+            hub.btnRate.addEventListener('click', () => self.open());
+        }
+
         const norm_prefs = window.SpolocalNormalizationPrefs;
         if (norm_prefs && hub.settingsNormalizeLoudness) {
             hub.settingsNormalizeLoudness.addEventListener('change', () => {
@@ -120,6 +137,9 @@ export class SettingsController {
         const hub = this.state.hub;
         prefs.syncTierGroup(hub.settingsPlaybackTiers, prefs.playbackKbps());
         prefs.syncTierGroup(hub.settingsDownloadTiers, prefs.downloadKbps());
+        if (this.transport && typeof this.transport.update_playback_rate_ui === 'function') {
+            this.transport.update_playback_rate_ui();
+        }
         this._update_labels();
     }
 

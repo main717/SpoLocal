@@ -172,6 +172,18 @@
                     </div>
                 </div>
                 <div class="settings-section">
+                    <div class="flex items-center justify-between gap-2 mb-1">
+                        <h3 class="text-sm font-semibold text-white">Playback speed</h3>
+                        <span id="settings-rate-value" class="text-xs text-[#1DB954] tabular-nums">1x</span>
+                    </div>
+                    <input type="range" id="settings-rate" min="0.5" max="2" step="0.05" value="1" class="w-full" aria-label="Playback speed">
+                    <div class="flex items-center justify-between mt-1">
+                        <span class="text-[10px] text-[#727272]">0.5x</span>
+                        <button type="button" id="settings-rate-reset" class="text-[10px] font-semibold text-[#B3B3B3] hover:text-white">Reset</button>
+                        <span class="text-[10px] text-[#727272]">2x</span>
+                    </div>
+                </div>
+                <div class="settings-section">
                     <h3 class="text-sm font-semibold text-white mb-1">Download library</h3>
                     <p class="text-xs text-[#727272] mb-3">Queue missing files for every playlist at a chosen quality.</p>
                     <div id="settings-library-download-tiers" class="quality-tier-group flex gap-1">
@@ -703,6 +715,9 @@
                         title="Queue" aria-pressed="false" aria-expanded="false" aria-controls="sidebar-queue" aria-label="Queue">
                     <i class="fa-solid fa-list-ul text-[13px] pointer-events-none" aria-hidden="true"></i>
                 </button>
+            <button type="button" id="player-rate"
+                    class="player-control-btn--muted h-8 min-w-[2.25rem] shrink-0 rounded-full px-1.5 text-[11px] font-semibold tabular-nums hover:text-white"
+                    title="Playback speed" aria-label="Playback speed">1x</button>
             <i id="player-volume-icon" class="fa-solid fa-volume-high text-[10px] sm:text-xs shrink-0 w-3.5 sm:w-4 text-center" style="margin-left:3px;margin-right:7px" aria-hidden="true"></i>
             <input type="range" id="player-volume" min="0" max="100" value="100" class="shrink-0 h-4 sm:h-auto ml-2" aria-label="Volume">
         </div>
@@ -719,7 +734,7 @@
         window.butterchurn = butterchurn && butterchurn.default ? butterchurn.default : butterchurn;
         window.dispatchEvent(new Event('spolocal-butterchurn-ready'));
     </script>
-        <script type="module" src="/static/js/PlaylistSession.mjs?v=134"></script>
+        <script type="module" src="/static/js/PlaylistSession.mjs?v=135"></script>
     <script type="module" src="/static/pwa/pwa-entry.js"></script>
     <script src="/static/js/app_shell.js?v=52" defer></script>
 </body>

@@ -655,3 +655,31 @@ describe('seek_by_delta', () => {
         expect(transport.seek_audio_to).not.toHaveBeenCalled();
     });
 });
+
+describe('playback rate', () => {
+    it('loads the stored rate and applies it to the audio element', () => {
+        localStorage.setItem('spolocal_playback_rate', '1.25');
+        const { transport, hub } = make_transport({ LS_RATE: 'spolocal_playback_rate' });
+        transport.load_playback_rate();
+        expect(transport.playback_rate).toBe(1.25);
+        expect(hub.audio.playbackRate).toBe(1.25);
+        expect(hub.audio.defaultPlaybackRate).toBe(1.25);
+    });
+
+    it('falls back to 1x for junk and clamps out-of-range values', () => {
+        localStorage.setItem('spolocal_playback_rate', 'nope');
+        const { transport } = make_transport({ LS_RATE: 'spolocal_playback_rate' });
+        transport.load_playback_rate();
+        expect(transport.playback_rate).toBe(1);
+        expect(transport.clamp_playback_rate(3)).toBe(2);
+        expect(transport.clamp_playback_rate(0.1)).toBe(0.5);
+        expect(transport.clamp_playback_rate(1.234)).toBe(1.23);
+    });
+
+    it('persists a new rate', () => {
+        const { transport, hub } = make_transport({ LS_RATE: 'spolocal_playback_rate' });
+        transport.set_playback_rate(1.5);
+        expect(localStorage.getItem('spolocal_playback_rate')).toBe('1.5');
+        expect(hub.audio.playbackRate).toBe(1.5);
+    });
+});
