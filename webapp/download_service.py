@@ -582,11 +582,15 @@ class DownloadService:
         return True
 
     def _reconcile_media_paths(self) -> None:
-        """Repair stale primary paths once at startup and persist the result."""
+        """Repair stale paths once at startup and persist the result."""
         changed = False
         for pl in self.playlists.values():
             for track in pl.tracks:
+                if self._prune_missing_variants(track):
+                    changed = True
                 if self._repair_stale_media_relpath(track):
+                    changed = True
+                if self._media_source_ids(track)[0] and self._sync_track_media_from_source(track):
                     changed = True
         if changed:
             self._save_playlists()
@@ -627,6 +631,22 @@ class DownloadService:
         if (track.media_relpath or "").strip():
             return True
         return any((rel or "").strip() for rel in (track.media_variants or {}).values())
+
+    def _prune_missing_variants(self, track: Track) -> bool:
+        """Drop variant entries whose file is gone so the client never requests a 404."""
+        variants = track.media_variants or {}
+        changed = False
+        for key, rel in list(variants.items()):
+            if rel:
+                try:
+                    exists = (self.root / "downloads" / rel).resolve().is_file()
+                except OSError:
+                    exists = False
+                if exists:
+                    continue
+            variants.pop(key, None)
+            changed = True
+        return changed
 
     def _clear_stale_variant(self, track: Track, quality: str) -> None:
         """Drop a variant entry when its file is missing on disk."""
@@ -793,10 +813,13 @@ class DownloadService:
         if sp_pl:
             self.hydrate_media_paths(sp_pl, persist=False)
         changed = False
-        if src.media_relpath and not track.media_relpath:
+        if src.media_relpath and track.media_relpath != src.media_relpath:
             track.media_relpath = src.media_relpath
             changed = True
-        if src.media_variants and not track.media_variants:
+        # An alias points at the source audio, so its variants must follow the
+        # source too. Keeping the first copy forever advertises files that a
+        # later re-download replaced (the client then requests a 404).
+        if src.media_variants and track.media_variants != src.media_variants:
             track.media_variants = dict(src.media_variants)
             changed = True
         if src.youtube_video_id and not track.youtube_video_id:
@@ -1607,6 +1630,8 @@ class DownloadService:
                 changed = self._hydrate_albums_cached(pl, cache_entry, persist) or changed
 
             for t in pl.tracks:
+                if self._prune_missing_variants(t):
+                    changed = True
                 if self._repair_stale_media_relpath(t):
                     changed = True
                 if self._media_source_ids(t)[0] and self._sync_track_media_from_source(t):

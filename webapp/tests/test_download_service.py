@@ -297,6 +297,57 @@ class TestVariantResolution:
         service._clear_stale_variant(t, "64")
         assert t.media_variants == {"64": "youtube/Song [abc]__64k.webm"}
 
+    def test_prune_missing_variants(self, service: DownloadService, temp_root: Path) -> None:
+        write_media(temp_root, "youtube/Song [abc]__64k.webm")
+        t = make_track(
+            variants={
+                "64": "youtube/Song [abc]__64k.webm",
+                "192": "flow/Song.mp3",
+            }
+        )
+        assert service._prune_missing_variants(t)
+        assert t.media_variants == {"64": "youtube/Song [abc]__64k.webm"}
+
+    def test_prune_missing_variants_keeps_existing(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "youtube/Song [abc]__64k.webm")
+        t = make_track(variants={"64": "youtube/Song [abc]__64k.webm"})
+        assert not service._prune_missing_variants(t)
+        assert t.media_variants == {"64": "youtube/Song [abc]__64k.webm"}
+
+    def test_hydrate_alias_follows_source_variants(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        write_media(temp_root, "youtube/Song [abc]__120k.mp3")
+        write_media(temp_root, "youtube/Song [abc]__192k.opus")
+        source = service.create_playlist("Mine", owner_id="u1")
+        src = make_track(
+            variants={
+                "120": "youtube/Song [abc]__120k.mp3",
+                "192": "youtube/Song [abc]__192k.opus",
+            }
+        )
+        src.media_relpath = "youtube/Song [abc]__192k.opus"
+        source.add_track(src)
+
+        liked = service._ensure_liked_songs_playlist("u1")
+        alias = make_track(
+            variants={
+                "120": "youtube/Song [abc]__120k.mp3",
+                "192": "flow/Song.mp3",
+            }
+        )
+        alias.media_relpath = "youtube/Song [abc]__120k.mp3"
+        alias.liked_source_playlist_id = source.id
+        alias.liked_source_track_id = src.id
+        liked.add_track(alias)
+
+        service.hydrate_media_paths(liked, persist=False)
+
+        assert alias.media_variants == src.media_variants
+        assert alias.media_relpath == src.media_relpath
+
     def test_settle_marks_queued_track_with_playable_file_done(
         self, service: DownloadService, temp_root: Path
     ) -> None:
