@@ -1376,6 +1376,21 @@ body.mobile-queue-open #sidebar-queue {
     border-top: 1px solid #3e3e3e;
 }
 
+/* Keep the heading and close button in place; only the sections scroll. */
+#settings-modal .settings-panel {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 2rem);
+    max-height: calc(100dvh - 2rem);
+}
+
+#settings-modal .settings-sections {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 0.25rem;
+}
+
 .settings-section .quality-tier-group {
     gap: 0.5rem;
 }
