@@ -178,6 +178,14 @@ export class PlaylistLyricsController {
 
         hub.lyricsBody.textContent = 'Loading…';
 
+        const cacheKey = searchVid ? '' : this.lyrics_cache_key();
+        const cached = cacheKey ? (hub._lyricsPrefetch && hub._lyricsPrefetch.get(cacheKey)) : null;
+        if (cached) {
+            hub._lyricsPrefetch.delete(cacheKey);
+            this.applyLyricsPayload(cached, showEmptyMessage);
+            return;
+        }
+
         const ctrl = new AbortController();
         hub.lyricsAbortController = ctrl;
 
@@ -201,6 +209,7 @@ export class PlaylistLyricsController {
                 hub._searchLyricsKind = (j.source === 'chapters') ? 'chapters' : 'none';
             }
             this.applyLyricsPayload(j, showEmptyMessage);
+            if (!searchVid) this.prefetch_next_lyrics();
             if (searchVid && hub._searchLyricsKind !== 'chapters') {
                 await this.load_stream_lyrics(myGen);
             }
@@ -209,6 +218,41 @@ export class PlaylistLyricsController {
             if (e.name === 'AbortError') return;
             hub.lyricsBody.textContent = 'Could not load lyrics.';
         }
+    }
+
+    lyrics_cache_key() {
+        const hub = this.state.hub;
+        if (!hub.currentTrackId) return '';
+        const pid = String(hub.playingPlaylistId || hub.playlistId || '').trim();
+        return pid + ':' + hub.currentTrackId;
+    }
+
+    /** Warm the lyrics endpoint for the next few tracks so switching is instant. */
+    prefetch_next_lyrics() {
+        const hub = this.state.hub;
+        if (hub.searchStreamActive) return;
+        const prefs = window.SpolocalQualityPrefs;
+        if (prefs && prefs.playbackKbps() <= 64) return;
+        const pid = String(hub.playingPlaylistId || hub.playlistId || '').trim();
+        const list = Array.isArray(hub.playable) ? hub.playable : [];
+        if (!pid || !list.length) return;
+        const idx = list.findIndex((e) => String(e.id) === String(hub.currentTrackId));
+        if (idx < 0) return;
+        const cache = hub._lyricsPrefetch || (hub._lyricsPrefetch = new Map());
+        const seen = new Set();
+        for (let step = 1; step <= 3 && step < list.length; step++) {
+            const entry = list[(idx + step) % list.length];
+            if (!entry || !entry.id || seen.has(entry.id)) continue;
+            seen.add(entry.id);
+            const key = pid + ':' + entry.id;
+            if (cache.has(key)) continue;
+            cache.set(key, null);
+            fetch('/playlists/' + encodeURIComponent(pid) + '/tracks/' + encodeURIComponent(entry.id) + '/lyrics')
+                .then((r) => (r.ok ? r.json() : null))
+                .then((j) => { if (j) cache.set(key, j); else cache.delete(key); })
+                .catch(() => cache.delete(key));
+        }
+        while (cache.size > 12) cache.delete(cache.keys().next().value);
     }
 
     sync_search_lyrics_chrome() {

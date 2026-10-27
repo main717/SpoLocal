@@ -1167,3 +1167,50 @@ describe('hide and load stream video', () => {
         expect(hub.lyricsVideoEl.currentTime).toBe(0);
     });
 });
+
+describe('lyrics prefetch', () => {
+    it('warms the next three tracks after loading lyrics', async () => {
+        const playable = [{ id: 't1' }, { id: 't2' }, { id: 't3' }, { id: 't4' }];
+        const { controller } = make_controller({
+            currentTrackId: 't1',
+            playingPlaylistId: 'p1',
+            playable,
+        });
+        const fetch_fn = stub_fetch({ lyrics: 'one', source: 'plain', has_audio: true });
+        await controller.fetchLyrics(true);
+        const urls = fetch_fn.mock.calls.map((call) => call[0]);
+        expect(urls).toContain('/playlists/p1/tracks/t2/lyrics');
+        expect(urls).toContain('/playlists/p1/tracks/t3/lyrics');
+        expect(urls).toContain('/playlists/p1/tracks/t4/lyrics');
+        expect(urls).toHaveLength(4);
+    });
+
+    it('serves a prefetched payload without fetching again', async () => {
+        const { controller, hub } = make_controller({ currentTrackId: 't2', playingPlaylistId: 'p1' });
+        hub._lyricsPrefetch = new Map([
+            ['p1:t2', { lyrics: 'cached\nline', source: 'plain', has_audio: true }],
+        ]);
+        const fetch_fn = stub_fetch({});
+        await controller.fetchLyrics(true);
+        expect(fetch_fn).not.toHaveBeenCalled();
+        expect(hub.lyricsBody.querySelectorAll('.lyrics-line')).toHaveLength(2);
+        expect(hub._lyricsPrefetch.has('p1:t2')).toBe(false);
+    });
+
+    it('does not prefetch on data saver', async () => {
+        const playable = [{ id: 't1' }, { id: 't2' }, { id: 't3' }];
+        const { controller } = make_controller({
+            currentTrackId: 't1',
+            playingPlaylistId: 'p1',
+            playable,
+        });
+        window.SpolocalQualityPrefs = { playbackKbps: () => 64 };
+        try {
+            const fetch_fn = stub_fetch({ lyrics: 'one', source: 'plain', has_audio: true });
+            await controller.fetchLyrics(true);
+            expect(fetch_fn).toHaveBeenCalledTimes(1);
+        } finally {
+            delete window.SpolocalQualityPrefs;
+        }
+    });
+});
