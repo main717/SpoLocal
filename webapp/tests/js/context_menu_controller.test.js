@@ -749,8 +749,39 @@ describe('openContextMenu for playlists', () => {
             'Download all at Data Saver',
             'Download all at Highest',
             'Save to computer (ZIP)',
+            'Create share link',
             'Delete playlist',
         ]);
+    });
+
+    it('copies a share link to the clipboard', async () => {
+        const { hub, items } = make_hub();
+        const fetch_mock = vi.fn(async () => ({ ok: true, json: async () => ({ token: 'tok', url: '/share/tok' }) }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const write_text = vi.fn(() => Promise.resolve());
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: write_text }, configurable: true });
+        const controller = new PlaylistContextMenuController({ hub });
+        controller.openContextMenu(10, 20, { type: 'playlist', playlistId: 'p1', playlistName: 'List' });
+        find_button(items, 'Create share link').click();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        expect(fetch_mock.mock.calls[0][0]).toBe('/api/playlists/p1/share');
+        expect(fetch_mock.mock.calls[0][1].method).toBe('POST');
+        expect(write_text).toHaveBeenCalledWith(location.origin + '/share/tok');
+        delete navigator.clipboard;
+    });
+
+    it('falls back to a prompt when the clipboard is unavailable', async () => {
+        const { hub, items } = make_hub();
+        const fetch_mock = vi.fn(async () => ({ ok: true, json: async () => ({ token: 'tok', url: '/share/tok' }) }));
+        vi.stubGlobal('fetch', fetch_mock);
+        const prompt_mock = vi.fn();
+        vi.stubGlobal('prompt', prompt_mock);
+        delete navigator.clipboard;
+        const controller = new PlaylistContextMenuController({ hub });
+        controller.openContextMenu(10, 20, { type: 'playlist', playlistId: 'p1', playlistName: 'List' });
+        find_button(items, 'Create share link').click();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        expect(prompt_mock).toHaveBeenCalledWith('Share link', location.origin + '/share/tok');
     });
 
     it('opens the edit modal with catalog name and bio', () => {

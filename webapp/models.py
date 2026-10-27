@@ -168,6 +168,8 @@ class Playlist:
     # Account that owns this playlist. None = unclaimed (visible to no one until
     # a user logs in and claims it).
     owner_id: Optional[str] = None
+    # Public read-only share token. None = sharing disabled.
+    share_token: Optional[str] = None
 
     @classmethod
     def create(cls, name: str) -> "Playlist":

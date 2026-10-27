@@ -1,6 +1,7 @@
 """Unit tests for library ownership, variants, and progress reporting."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -662,3 +663,25 @@ class TestStartupHelpers:
         pl.add_track(t)
         _ORIG_RESET_INTERRUPTED(service)
         assert t.status == DownloadStatus.queued
+
+
+class TestShareToken:
+    def test_playlist_from_dict_keeps_share_token(self) -> None:
+        pl = _playlist_from_dict({"id": "p1", "name": "Mix", "share_token": "tok123"})
+        assert pl.share_token == "tok123"
+
+    def test_share_token_round_trips_through_disk(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        service.set_playlist_share_token(pl.id, "tok123")
+        assert service.get_playlist_by_share_token("tok123") is pl
+        reloaded = _playlist_from_dict(
+            json.loads(service._data_file().read_text(encoding="utf-8"))[pl.id]
+        )
+        assert reloaded.share_token == "tok123"
+
+    def test_revoked_token_is_gone(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        service.set_playlist_share_token(pl.id, "tok123")
+        service.set_playlist_share_token(pl.id, None)
+        assert service.get_playlist_by_share_token("tok123") is None
+        assert service.get_playlist_by_share_token("") is None

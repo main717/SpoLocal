@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>{{ playlist.name }} - SpoLocal</title>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #121212;
+            color: #fff;
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            padding-bottom: 96px;
+        }
+        header {
+            padding: 2.5rem 1.25rem 1.5rem;
+            background: linear-gradient(180deg, #1f3a2b 0%, #121212 100%);
+        }
+        .kicker {
+            font-size: 0.6875rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: #1DB954;
+            font-weight: 700;
+        }
+        h1 {
+            margin: 0.375rem 0 0.25rem;
+            font-size: clamp(1.75rem, 6vw, 2.75rem);
+            letter-spacing: -0.02em;
+        }
+        .meta { color: #B3B3B3; font-size: 0.8125rem; }
+        main { padding: 0 0.5rem; max-width: 56rem; margin: 0 auto; }
+        .track {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            font: inherit;
+            cursor: pointer;
+        }
+        .track:hover, .track.is-playing { background: #282828; }
+        .track-index {
+            width: 1.5rem;
+            flex: 0 0 auto;
+            color: #727272;
+            font-variant-numeric: tabular-nums;
+            font-size: 0.8125rem;
+            text-align: right;
+        }
+        .track.is-playing .track-index { color: #1DB954; }
+        .track-text { min-width: 0; flex: 1; }
+        .track-title { font-size: 0.875rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .track-artist { font-size: 0.75rem; color: #B3B3B3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .empty { color: #727272; font-size: 0.875rem; padding: 1rem 0.75rem; }
+        #bar {
+            position: fixed;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: none;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+            background: #181818;
+            border-top: 1px solid #282828;
+        }
+        #bar.is-visible { display: flex; }
+        #bar-text { min-width: 0; flex: 1; }
+        #bar-title { font-size: 0.8125rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #bar-artist { font-size: 0.6875rem; color: #B3B3B3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .ctrl {
+            flex: 0 0 auto;
+            width: 2.5rem;
+            height: 2.5rem;
+            border: 0;
+            border-radius: 999px;
+            background: transparent;
+            color: #B3B3B3;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        .ctrl:hover { color: #fff; }
+        #play {
+            background: #fff;
+            color: #000;
+            font-size: 0.9375rem;
+        }
+        footer {
+            max-width: 56rem;
+            margin: 1.5rem auto 0;
+            padding: 0 1.25rem;
+            color: #727272;
+            font-size: 0.6875rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="kicker">Shared playlist</div>
+        <h1>{{ playlist.name }}</h1>
+        <div class="meta">{{ tracks|length }} song{{ '' if tracks|length == 1 else 's' }} &middot; read only</div>
+    </header>
+    <main id="list">
+        {% if tracks %}
+        {% for track in tracks %}
+        <button type="button" class="track" data-src="{{ track.src }}" data-title="{{ track.title }}" data-artist="{{ track.artist }}">
+            <span class="track-index">{{ loop.index }}</span>
+            <span class="track-text">
+                <span class="track-title">{{ track.title }}</span>
+                <span class="track-artist">{{ track.artist }}</span>
+            </span>
+        </button>
+        {% endfor %}
+        {% else %}
+        <p class="empty">This playlist has no playable songs yet.</p>
+        {% endif %}
+    </main>
+    <footer>Shared from SpoLocal. This link is read-only.</footer>
+    <div id="bar">
+        <div id="bar-text">
+            <div id="bar-title"></div>
+            <div id="bar-artist"></div>
+        </div>
+        <button type="button" class="ctrl" id="prev" aria-label="Previous">&#9198;</button>
+        <button type="button" class="ctrl" id="play" aria-label="Play">&#9654;</button>
+        <button type="button" class="ctrl" id="next" aria-label="Next">&#9197;</button>
+    </div>
+    <audio id="audio" preload="metadata"></audio>
+    <script>
+        (function () {
+            var rows = Array.prototype.slice.call(document.querySelectorAll('.track'));
+            var audio = document.getElementById('audio');
+            var bar = document.getElementById('bar');
+            var playBtn = document.getElementById('play');
+            var titleEl = document.getElementById('bar-title');
+            var artistEl = document.getElementById('bar-artist');
+            var current = -1;
+
+            function markRow(index) {
+                rows.forEach(function (row, i) {
+                    row.classList.toggle('is-playing', i === index);
+                });
+            }
+
+            function playIndex(index) {
+                if (index < 0 || index >= rows.length) return;
+                current = index;
+                var row = rows[index];
+                audio.src = row.getAttribute('data-src');
+                titleEl.textContent = row.getAttribute('data-title');
+                artistEl.textContent = row.getAttribute('data-artist');
+                bar.classList.add('is-visible');
+                markRow(index);
+                audio.play().catch(function () {});
+            }
+
+            rows.forEach(function (row, i) {
+                row.addEventListener('click', function () {
+                    if (i === current && !audio.paused) {
+                        audio.pause();
+                    } else if (i === current) {
+                        audio.play().catch(function () {});
+                    } else {
+                        playIndex(i);
+                    }
+                });
+            });
+
+            playBtn.addEventListener('click', function () {
+                if (current < 0) { playIndex(0); return; }
+                if (audio.paused) audio.play().catch(function () {}); else audio.pause();
+            });
+            document.getElementById('prev').addEventListener('click', function () {
+                if (current > 0) playIndex(current - 1);
+            });
+            document.getElementById('next').addEventListener('click', function () {
+                if (current + 1 < rows.length) playIndex(current + 1);
+            });
+            audio.addEventListener('play', function () { playBtn.innerHTML = '&#10074;&#10074;'; });
+            audio.addEventListener('pause', function () { playBtn.innerHTML = '&#9654;'; });
+            audio.addEventListener('ended', function () {
+                if (current + 1 < rows.length) playIndex(current + 1);
+                else { playBtn.innerHTML = '&#9654;'; }
+            });
+        })();
+    </script>
+</body>
+</html>

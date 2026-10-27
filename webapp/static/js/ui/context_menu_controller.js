@@ -389,6 +389,27 @@ export class PlaylistContextMenuController {
                 a.click();
                 a.remove();
             }, false);
+            mkBtn('Create share link', () => {
+                fetch('/api/playlists/' + encodeURIComponent(payload.playlistId) + '/share', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Accept': 'application/json' },
+                })
+                    .then((r) => {
+                        if (!r.ok) throw new Error('share failed');
+                        return r.json();
+                    })
+                    .then((data) => {
+                        const url = location.origin + (data.url || '/share/' + data.token);
+                        const fallback = () => prompt('Share link', url);
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            navigator.clipboard.writeText(url).catch(fallback);
+                        } else {
+                            fallback();
+                        }
+                    })
+                    .catch(() => alert('Could not create a share link.'));
+            }, false);
             mkBtn('Delete playlist', () => {
                 const n = payload.playlistName || 'this playlist';
                 if (!confirm('Delete playlist "' + n + '"? Files on disk are not removed.')) return;

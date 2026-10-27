@@ -149,6 +149,7 @@ def _playlist_from_dict(pdata: dict) -> Playlist:
         spotify_snapshot_id=data.get("spotify_snapshot_id"),
         bio=data.get("bio"),
         owner_id=data.get("owner_id"),
+        share_token=data.get("share_token"),
     )
 
 
@@ -285,6 +286,7 @@ class DownloadService:
                     "name": pl.name,
                     "bio": pl.bio,
                     "owner_id": pl.owner_id,
+                    "share_token": pl.share_token,
                     "created_at": pl.created_at.isoformat(),
                     "spotify_catalog_key": pl.spotify_catalog_key,
                     "spotify_snapshot_id": pl.spotify_snapshot_id,
@@ -836,6 +838,24 @@ class DownloadService:
         pl = self.get_playlist(playlist_id)
         if pl is None or pl.owner_id != owner_id:
             return None
+        return pl
+
+    def get_playlist_by_share_token(self, token: str) -> Optional[Playlist]:
+        """Public lookup for read-only share links."""
+        key = (token or "").strip()
+        if not key:
+            return None
+        for pl in self.playlists.values():
+            if pl.share_token and pl.share_token == key:
+                return pl
+        return None
+
+    def set_playlist_share_token(self, playlist_id: str, token: Optional[str]) -> Optional[Playlist]:
+        pl = self.get_playlist(playlist_id)
+        if pl is None:
+            return None
+        pl.share_token = (token or "").strip() or None
+        self._save_playlists()
         return pl
 
     def _media_source_ids(self, track: Track) -> tuple[str, str]:

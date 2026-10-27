@@ -484,3 +484,71 @@ class TestStorage:
         (media / "b__64k.webm").write_bytes(b"x" * 999)
         second = client.get("/api/storage").json()
         assert second["media_bytes"] == first["media_bytes"]
+
+
+class TestShareLink:
+    def test_guest_cannot_create_a_link(self, client, service) -> None:
+        pl = make_playlist(service, "Mine", "u1", tracks=1)
+        assert client.post(f"/api/playlists/{pl.id}/share").status_code == 401
+
+    def test_non_owner_cannot_create_a_link(self, client, service, logged_in) -> None:
+        other = make_playlist(service, "Other", "someone-else", tracks=1)
+        assert client.post(f"/api/playlists/{other.id}/share").status_code == 404
+
+    def test_owner_gets_a_stable_token(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=1)
+        first = client.post(f"/api/playlists/{pl.id}/share")
+        assert first.status_code == 200, first.text
+        data = first.json()
+        assert data["token"]
+        assert data["url"] == "/share/" + data["token"]
+        second = client.post(f"/api/playlists/{pl.id}/share").json()
+        assert second["token"] == data["token"]
+
+    def test_shared_page_is_public(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=2)
+        pl.tracks[0].media_relpath = "youtube/song-0__64k.webm"
+        pl.tracks[1].media_relpath = "youtube/song-1__64k.webm"
+        token = client.post(f"/api/playlists/{pl.id}/share").json()["token"]
+        client.cookies.clear()
+        resp = client.get(f"/share/{token}")
+        assert resp.status_code == 200
+        assert "Mine" in resp.text
+        assert "Song 0" in resp.text
+        assert "Song 1" in resp.text
+        assert "2 songs" in resp.text
+        assert f"/share/{token}/media/youtube/song-0__64k.webm" in resp.text
+
+    def test_unknown_token_is_404(self, client) -> None:
+        assert client.get("/share/nope").status_code == 404
+
+    def test_share_media_serves_only_playlist_files(
+        self, client, service, logged_in, temp_root: Path, monkeypatch, main_module
+    ) -> None:
+        from media_server import MediaServer
+
+        monkeypatch.setattr(main_module, "media_server", MediaServer(temp_root / "downloads", temp_root))
+        media = temp_root / "downloads" / "youtube"
+        media.mkdir(parents=True, exist_ok=True)
+        (media / "song__64k.webm").write_bytes(b"allowed")
+        (media / "other__64k.webm").write_bytes(b"foreign")
+
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=1)
+        pl.tracks[0].media_relpath = "youtube/song__64k.webm"
+        token = client.post(f"/api/playlists/{pl.id}/share").json()["token"]
+        client.cookies.clear()
+
+        ok = client.get(f"/share/{token}/media/youtube/song__64k.webm")
+        assert ok.status_code == 200
+        assert ok.content == b"allowed"
+        assert client.get(f"/share/{token}/media/youtube/other__64k.webm").status_code == 404
+
+    def test_revoked_token_is_gone(self, client, service, logged_in) -> None:
+        _, user_id = logged_in
+        pl = make_playlist(service, "Mine", user_id, tracks=1)
+        token = client.post(f"/api/playlists/{pl.id}/share").json()["token"]
+        assert client.delete(f"/api/playlists/{pl.id}/share").status_code == 200
+        assert client.get(f"/share/{token}").status_code == 404

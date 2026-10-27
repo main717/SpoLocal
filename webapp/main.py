@@ -12,6 +12,7 @@ import re
 import time
 import json
 import os
+import secrets
 import threading
 import mimetypes
 import shlex
@@ -1761,3 +1762,66 @@ async def serve_media(media_path: str, request: Request):
     _auth_user(request, required=True)
     sliced = request.query_params.get("sliced") == "1"
     return media_server.serve(media_path, request, sliced=sliced)
+
+
+@app.post("/api/playlists/{playlist_id}/share")
+async def api_create_share_link(request: Request, playlist_id: str):
+    """Create (or return) the public read-only share token for a playlist."""
+    pl = _owned_playlist_or_404(request, playlist_id)
+    token = pl.share_token
+    if not token:
+        token = secrets.token_urlsafe(18)
+        service.set_playlist_share_token(pl.id, token)
+    return JSONResponse({"ok": True, "token": token, "url": "/share/" + token})
+
+
+@app.delete("/api/playlists/{playlist_id}/share")
+async def api_revoke_share_link(request: Request, playlist_id: str):
+    pl = _owned_playlist_or_404(request, playlist_id)
+    service.set_playlist_share_token(pl.id, None)
+    return JSONResponse({"ok": True})
+
+
+def _shared_playlist_or_404(token: str) -> Playlist:
+    pl = service.get_playlist_by_share_token(token)
+    if not pl:
+        raise HTTPException(status_code=404, detail="Share link not found")
+    return pl
+
+
+def _share_track_rows(pl: Playlist, token: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for t in pl.tracks:
+        variants = t.media_variants or {}
+        rel = variants.get("192") or variants.get("64") or t.media_relpath
+        if not rel:
+            continue
+        rows.append(
+            {
+                "title": t.title,
+                "artist": t.artist or "",
+                "album": t.album or "",
+                "src": "/share/" + token + "/media/" + quote(rel, safe="/"),
+            }
+        )
+    return rows
+
+
+@app.get("/share/{token}")
+async def share_page(request: Request, token: str):
+    pl = _shared_playlist_or_404(token)
+    tpl = templates.env.get_template("share.html")
+    html = tpl.render(request=request, playlist=pl, tracks=_share_track_rows(pl, token))
+    return HTMLResponse(html)
+
+
+@app.get("/share/{token}/media/{media_path:path}")
+async def share_media(request: Request, token: str, media_path: str):
+    """Serve only files that belong to the shared playlist."""
+    pl = _shared_playlist_or_404(token)
+    allowed = {t.media_relpath for t in pl.tracks if t.media_relpath}
+    for t in pl.tracks:
+        allowed.update((t.media_variants or {}).values())
+    if media_path not in allowed:
+        raise HTTPException(status_code=404, detail="Media file not found")
+    return media_server.serve(media_path, request)
