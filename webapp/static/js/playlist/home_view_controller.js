@@ -97,7 +97,7 @@ export class PlaylistHomeViewController {
         const size = document.getElementById('home-storage-size');
         const meta = document.getElementById('home-storage-meta');
         const fill = document.getElementById('home-storage-fill');
-        if (size) size.textContent = PlaylistHomeViewController.format_bytes(data.media_bytes);
+        if (size) size.textContent = PlaylistHomeViewController.format_bytes(data.media_bytes) + ' used';
         if (meta) {
             meta.textContent = PlaylistHomeViewController.format_bytes(free) +
                 ' free of ' + PlaylistHomeViewController.format_bytes(total);

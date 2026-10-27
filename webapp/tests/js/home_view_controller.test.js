@@ -293,7 +293,7 @@ describe('storage panel', () => {
         for (let i = 0; i < 5; i++) await Promise.resolve();
         const box = document.getElementById('home-storage');
         expect(box.classList.contains('hidden')).toBe(false);
-        expect(document.getElementById('home-storage-size').textContent).toBe('12.0 GB');
+        expect(document.getElementById('home-storage-size').textContent).toBe('12.0 GB used');
         expect(document.getElementById('home-storage-meta').textContent).toBe('25.0 GB free of 100 GB');
         expect(document.getElementById('home-storage-fill').style.width).toBe('75%');
         vi.unstubAllGlobals();
