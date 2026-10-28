@@ -7,7 +7,9 @@
  * when nothing changed, which matters because render() also runs on every play.
  */
 import { Dom } from '../ui/dom.js?v=1';
-import { PlaylistPlayLog } from './play_log.js?v=2';
+import { HOME_RANGES, home_range, home_range_def, set_home_range } from '../ui/home_prefs.js?v=1';
+import { PlaylistPlayLog } from './play_log.js?v=3';
+import { PlaylistWrappedView } from './wrapped_view.js?v=1';
 
 export class PlaylistHomeViewController {
     /** @param {import('../player/player_state.js').PlaylistPlayerState} state */
@@ -17,6 +19,11 @@ export class PlaylistHomeViewController {
         this._sig = {};
         this._storyScroll = 0;
         this._storyRaf = 0;
+        this.wrapped = new PlaylistWrappedView(
+            state,
+            () => this.range_data('year'),
+            (track) => this.track_cover_url(track),
+        );
     }
 
     static plays_label(count) {
@@ -30,6 +37,7 @@ export class PlaylistHomeViewController {
             this.sync_random_ui();
             if (hub.randomMode && this.transport) this.transport.play_random_from_library();
         });
+        Dom.bind_once(document.getElementById('home-wrapped-card'), 'wrapped', 'click', () => this.wrapped.open());
         this.sync_random_ui();
     }
 
@@ -47,8 +55,9 @@ export class PlaylistHomeViewController {
 
     render() {
         const data = this.aggregate();
-        this.render_stats(data);
+        this.render_range_stats();
         this.render_storage();
+        this.render_wrapped_card();
         this.render_stories(data);
         this.render_top_playlists(data);
         this.render_top_songs(data);
@@ -114,60 +123,111 @@ export class PlaylistHomeViewController {
         return map;
     }
 
-    /** Ranked songs, playlists and headline numbers for the whole view. */
-    aggregate() {
-        const hub = this.state.hub;
-        const track_plays = PlaylistPlayLog.track_plays();
-        const playlist_plays = PlaylistPlayLog.playlist_plays();
-        const catalog = this.catalog_by_id();
-        const pool = Array.isArray(hub.libraryPool) ? hub.libraryPool : [];
-        const pool_map = new Map();
+    /** Library tracks keyed by ``playlist|track``. */
+    pool_map(pool) {
+        const map = new Map();
         pool.forEach((t) => {
             if (t && t.playlist_id && t.track_id) {
-                pool_map.set(PlaylistPlayLog.track_key(t.playlist_id, t.track_id), t);
+                map.set(PlaylistPlayLog.track_key(t.playlist_id, t.track_id), t);
             }
         });
+        return map;
+    }
 
-        const songs = Object.entries(track_plays)
+    library_pool() {
+        const hub = this.state.hub;
+        return Array.isArray(hub.libraryPool) ? hub.libraryPool : [];
+    }
+
+    rank_songs(track_plays, pool_map) {
+        return Object.entries(track_plays)
             .map(([key, count]) => ({ key, count: Number(count) || 0, track: pool_map.get(key) }))
             .filter((row) => row.count > 0 && row.track && row.track.play_src)
             .sort((a, b) => b.count - a.count);
+    }
 
-        const playlists = Object.entries(playlist_plays)
+    rank_playlists(playlist_plays, catalog) {
+        return Object.entries(playlist_plays)
             .map(([id, count]) => ({ id, count: Number(count) || 0, playlist: catalog.get(String(id)) }))
             .filter((row) => row.count > 0 && row.playlist)
             .sort((a, b) => b.count - a.count);
+    }
 
-        const artists = new Map();
+    artist_rows(songs) {
+        const map = new Map();
         songs.forEach((row) => {
             const name = String(row.track.artist || '').trim();
-            if (name) artists.set(name, (artists.get(name) || 0) + row.count);
+            if (name) map.set(name, (map.get(name) || 0) + row.count);
         });
-        const top_artist = Array.from(artists.entries()).sort((a, b) => b[1] - a[1])[0];
+        return Array.from(map.entries())
+            .map(([name, plays]) => ({ name, plays }))
+            .sort((a, b) => b.plays - a.plays);
+    }
 
+    /** Ranked songs, playlists and headline numbers for the whole view. */
+    aggregate() {
+        const track_plays = PlaylistPlayLog.track_plays();
+        const playlist_plays = PlaylistPlayLog.playlist_plays();
+        const catalog = this.catalog_by_id();
+        const pool = this.library_pool();
+        const songs = this.rank_songs(track_plays, this.pool_map(pool));
+        const playlists = this.rank_playlists(playlist_plays, catalog);
+        const artists = this.artist_rows(songs);
         return {
             songs,
             playlists,
             totalPlays: Object.values(track_plays).reduce((sum, v) => sum + (Number(v) || 0), 0),
             uniqueSongs: songs.length,
             playlistsPlayed: playlists.length,
-            topArtist: top_artist ? { name: top_artist[0], plays: top_artist[1] } : null,
+            topArtist: artists[0] || null,
             weekPlays: PlaylistPlayLog.week_plays(),
             librarySize: pool.length,
         };
     }
 
-    render_stats(data) {
+    /** Everything the stats section and Wrapped need for one date range. */
+    range_data(key) {
+        const def = home_range_def(key);
+        const catalog = this.catalog_by_id();
+        const pool = this.library_pool();
+        const track_plays = PlaylistPlayLog.range_track_plays(def.days);
+        const playlist_plays = PlaylistPlayLog.range_playlist_plays(def.days);
+        const songs = this.rank_songs(track_plays, this.pool_map(pool));
+        const playlists = this.rank_playlists(playlist_plays, catalog);
+        const artists = this.artist_rows(songs);
+        const days = PlaylistPlayLog.range_day_plays(def.days);
+        const busiest = Object.entries(days).sort((a, b) => b[1] - a[1])[0];
+        return {
+            def,
+            songs,
+            playlists,
+            artists,
+            topArtist: artists[0] || null,
+            topDay: busiest ? { day: busiest[0], plays: busiest[1] } : null,
+            total: Object.values(track_plays).reduce((sum, v) => sum + (Number(v) || 0), 0),
+            librarySize: pool.length,
+        };
+    }
+
+    render_range_stats() {
         const el = document.getElementById('home-stats');
         if (!el) return;
-        const sig = JSON.stringify([data.totalPlays, data.uniqueSongs, data.playlistsPlayed, data.topArtist, data.weekPlays]);
+        const key = home_range();
+        const data = this.range_data(key);
+        this.render_range_tabs();
+        this.render_range_hero(data);
+        const sig = JSON.stringify([key, data.total, data.songs.length, data.playlists.length, data.topArtist]);
         if (sig === this._sig.stats) return;
         this._sig.stats = sig;
         const tiles = [
-            { label: 'Total plays', value: String(data.totalPlays), meta: data.weekPlays ? data.weekPlays + ' in the last 7 days' : 'all time' },
-            { label: 'Songs', value: String(data.uniqueSongs), meta: 'played at least once' },
-            { label: 'Playlists', value: String(data.playlistsPlayed), meta: 'played at least once' },
-            { label: 'Top artist', value: data.topArtist ? data.topArtist.name : '-', meta: data.topArtist ? PlaylistHomeViewController.plays_label(data.topArtist.plays) : 'no plays yet' },
+            { label: 'Plays', value: String(data.total), meta: data.def.period },
+            { label: 'Songs', value: String(data.songs.length), meta: 'played at least once' },
+            { label: 'Artists', value: String(data.artists.length), meta: 'played at least once' },
+            {
+                label: 'Top artist',
+                value: data.topArtist ? data.topArtist.name : '-',
+                meta: data.topArtist ? PlaylistHomeViewController.plays_label(data.topArtist.plays) : 'no plays yet',
+            },
         ];
         el.replaceChildren(...tiles.map((tile) => {
             const value = Dom.el('div', 'home-stat-value', tile.value);
@@ -180,6 +240,93 @@ export class PlaylistHomeViewController {
             );
             return card;
         }));
+    }
+
+    render_range_tabs() {
+        const tabs = document.getElementById('home-range-tabs');
+        if (!tabs) return;
+        if (!tabs.children.length) {
+            tabs.replaceChildren(...HOME_RANGES.map((range) => {
+                const btn = Dom.el('button', 'home-range-tab', range.label);
+                btn.type = 'button';
+                btn.dataset.range = range.key;
+                btn.setAttribute('role', 'tab');
+                return btn;
+            }));
+        }
+        Dom.bind_once(tabs, 'range', 'click', (e) => {
+            const btn = e.target.closest('[data-range]');
+            if (btn) this.set_range(btn.dataset.range);
+        });
+        const key = home_range();
+        tabs.querySelectorAll('[data-range]').forEach((btn) => {
+            const on = btn.dataset.range === key;
+            btn.classList.toggle('home-range-tab--active', on);
+            btn.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+    }
+
+    set_range(key) {
+        set_home_range(key);
+        this._sig.stats = null;
+        this.render_range_stats();
+        this.sync_settings_range();
+    }
+
+    sync_settings_range() {
+        const group = document.getElementById('settings-home-range');
+        if (!group) return;
+        const key = home_range();
+        group.querySelectorAll('[data-range]').forEach((btn) => {
+            const on = btn.dataset.range === key;
+            btn.classList.toggle('quality-tier-btn--active', on);
+            btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        });
+    }
+
+    render_range_hero(data) {
+        const hero = document.getElementById('home-range-hero');
+        if (!hero) return;
+        const top_song = data.songs[0];
+        if (!data.total && !top_song) {
+            hero.replaceChildren(Dom.el('div', 'home-hero home-hero--empty', 'Nothing played ' + data.def.period + ' yet.'));
+            return;
+        }
+        const card = Dom.el('div', 'home-hero');
+        const art = Dom.el('div', 'home-hero-art');
+        if (top_song) art.appendChild(Dom.cover(this.track_cover_url(top_song.track)));
+        const body = Dom.el('div', 'home-hero-body');
+        body.append(
+            Dom.el('div', 'home-hero-kicker', top_song ? 'Top song ' + data.def.period : 'Plays ' + data.def.period),
+            Dom.el('div', 'home-hero-title', top_song ? (top_song.track.title || 'Unknown') : String(data.total)),
+            Dom.el('div', 'home-hero-meta', top_song ? (top_song.track.artist || '') : data.def.title),
+        );
+        if (top_song) {
+            body.appendChild(Dom.el('div', 'home-hero-plays', PlaylistHomeViewController.plays_label(top_song.count)));
+        }
+        card.append(art, body);
+        if (data.topArtist) {
+            const side = Dom.el('div', 'home-hero-side');
+            side.append(
+                Dom.el('div', 'home-stat-label', 'Top artist'),
+                Dom.el('div', 'home-hero-artist', data.topArtist.name),
+                Dom.el('div', 'home-hero-plays', PlaylistHomeViewController.plays_label(data.topArtist.plays)),
+            );
+            card.appendChild(side);
+        }
+        hero.replaceChildren(card);
+    }
+
+    render_wrapped_card() {
+        const year = document.getElementById('home-wrapped-year');
+        if (year) year.textContent = String(new Date().getFullYear());
+        const meta = document.getElementById('home-wrapped-meta');
+        if (!meta) return;
+        const data = this.range_data('year');
+        meta.textContent = data.total
+            ? PlaylistHomeViewController.plays_label(data.total) + ' in ' + data.songs.length +
+                (data.songs.length === 1 ? ' song' : ' songs')
+            : 'Your year in music';
     }
 
     build_stories(data) {

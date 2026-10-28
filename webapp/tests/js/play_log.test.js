@@ -36,14 +36,16 @@ describe('sync', () => {
         localStorage.setItem('spolocal_track_plays', JSON.stringify({ 'p1|t1': 3 }));
         localStorage.setItem('spolocal_playlist_plays', JSON.stringify({ p1: 3 }));
         localStorage.setItem('spolocal_play_log', JSON.stringify({ '2026-01-01': 3 }));
+        localStorage.setItem('spolocal_track_day_plays', JSON.stringify({ '2026-01-01|p1|t1': 3 }));
         const fetch = vi.fn()
-            .mockImplementationOnce(() => json_response({ authenticated: true, track_plays: {}, playlist_plays: {}, day_plays: {} }))
+            .mockImplementationOnce(() => json_response({ authenticated: true, track_plays: {}, playlist_plays: {}, day_plays: {}, track_day_plays: {} }))
             .mockImplementationOnce(() => json_response({ ok: true, seeded: true }))
             .mockImplementationOnce(() => json_response({
                 authenticated: true,
                 track_plays: { 'p1|t1': 9 },
                 playlist_plays: { p1: 9 },
                 day_plays: { '2026-01-01': 9 },
+                track_day_plays: { '2026-01-01|p1|t1': 9 },
             }));
         vi.stubGlobal('fetch', fetch);
 
@@ -55,10 +57,12 @@ describe('sync', () => {
             track_plays: { 'p1|t1': 3 },
             playlist_plays: { p1: 3 },
             day_plays: { '2026-01-01': 3 },
+            track_day_plays: { '2026-01-01|p1|t1': 3 },
         });
         expect(PlaylistPlayLog.track_plays()).toEqual({ 'p1|t1': 9 });
         expect(PlaylistPlayLog.playlist_plays()).toEqual({ p1: 9 });
         expect(PlaylistPlayLog.day_plays()).toEqual({ '2026-01-01': 9 });
+        expect(PlaylistPlayLog.track_day_plays()).toEqual({ '2026-01-01|p1|t1': 9 });
         expect(PlaylistPlayLog.is_synced()).toBe(true);
     });
 
@@ -178,6 +182,7 @@ describe('stored collections', () => {
         expect(PlaylistPlayLog.track_plays()).toEqual({});
         expect(PlaylistPlayLog.playlist_plays()).toEqual({});
         expect(PlaylistPlayLog.day_plays()).toEqual({});
+        expect(PlaylistPlayLog.track_day_plays()).toEqual({});
     });
 });
 
@@ -210,12 +215,93 @@ describe('count_track', () => {
         expect(PlaylistPlayLog.playlist_plays()).toEqual({ p1: 2, p2: 1 });
     });
 
-    it('caps the play log at 60 days', () => {
+    it('caps the play log at 400 days', () => {
         const log = {};
-        for (let i = 0; i < 80; i++) log[PlaylistPlayLog.day(i)] = 1;
+        for (let i = 0; i < 420; i++) log[PlaylistPlayLog.day(i)] = 1;
         localStorage.setItem('spolocal_play_log', JSON.stringify(log));
         PlaylistPlayLog.count_track('p1', 't1');
-        expect(Object.keys(PlaylistPlayLog.day_plays()).length).toBe(60);
+        expect(Object.keys(PlaylistPlayLog.day_plays()).length).toBe(400);
+    });
+});
+
+describe('track_day_plays', () => {
+    it('counts the track for today', () => {
+        PlaylistPlayLog.count_track('p1', 't1');
+        PlaylistPlayLog.count_track('p1', 't1');
+        expect(PlaylistPlayLog.track_day_plays()).toEqual({
+            [PlaylistPlayLog.day(0) + '|p1|t1']: 2,
+        });
+    });
+
+    it('keeps separate rows per day', () => {
+        localStorage.setItem('spolocal_track_day_plays', JSON.stringify({ [PlaylistPlayLog.day(1) + '|p1|t1']: 5 }));
+        PlaylistPlayLog.count_track('p1', 't1');
+        const rows = PlaylistPlayLog.track_day_plays();
+        expect(rows[PlaylistPlayLog.day(1) + '|p1|t1']).toBe(5);
+        expect(rows[PlaylistPlayLog.day(0) + '|p1|t1']).toBe(1);
+    });
+
+    it('drops rows older than the cap', () => {
+        localStorage.setItem('spolocal_track_day_plays', JSON.stringify({ [PlaylistPlayLog.day(401) + '|p1|t1']: 5 }));
+        PlaylistPlayLog.count_track('p1', 't1');
+        const rows = PlaylistPlayLog.track_day_plays();
+        expect(rows[PlaylistPlayLog.day(401) + '|p1|t1']).toBe(undefined);
+        expect(rows[PlaylistPlayLog.day(0) + '|p1|t1']).toBe(1);
+    });
+
+    it('keeps rows inside the cap', () => {
+        localStorage.setItem('spolocal_track_day_plays', JSON.stringify({ [PlaylistPlayLog.day(399) + '|p1|t1']: 5 }));
+        PlaylistPlayLog.count_track('p1', 't1');
+        expect(PlaylistPlayLog.track_day_plays()[PlaylistPlayLog.day(399) + '|p1|t1']).toBe(5);
+    });
+});
+
+describe('ranges', () => {
+    function seed_days() {
+        localStorage.setItem('spolocal_track_day_plays', JSON.stringify({
+            [PlaylistPlayLog.day(0) + '|p1|t1']: 2,
+            [PlaylistPlayLog.day(3) + '|p1|t1']: 1,
+            [PlaylistPlayLog.day(6) + '|p2|t2']: 4,
+            [PlaylistPlayLog.day(8) + '|p1|t1']: 10,
+        }));
+        localStorage.setItem('spolocal_play_log', JSON.stringify({
+            [PlaylistPlayLog.day(0)]: 2,
+            [PlaylistPlayLog.day(3)]: 1,
+            [PlaylistPlayLog.day(8)]: 10,
+        }));
+    }
+
+    it('range_days covers the requested days', () => {
+        const days = PlaylistPlayLog.range_days(7);
+        expect(days.size).toBe(7);
+        expect(days.has(PlaylistPlayLog.day(0))).toBe(true);
+        expect(days.has(PlaylistPlayLog.day(6))).toBe(true);
+        expect(days.has(PlaylistPlayLog.day(7))).toBe(false);
+    });
+
+    it('range_track_plays sums only the range', () => {
+        seed_days();
+        expect(PlaylistPlayLog.range_track_plays(7)).toEqual({ 'p1|t1': 3, 'p2|t2': 4 });
+        expect(PlaylistPlayLog.range_track_plays(30)).toEqual({ 'p1|t1': 13, 'p2|t2': 4 });
+    });
+
+    it('range_playlist_plays sums only the range', () => {
+        seed_days();
+        expect(PlaylistPlayLog.range_playlist_plays(7)).toEqual({ p1: 3, p2: 4 });
+        expect(PlaylistPlayLog.range_playlist_plays(30)).toEqual({ p1: 13, p2: 4 });
+    });
+
+    it('range_day_plays keeps the day keys inside the range', () => {
+        seed_days();
+        expect(PlaylistPlayLog.range_day_plays(7)).toEqual({
+            [PlaylistPlayLog.day(0)]: 2,
+            [PlaylistPlayLog.day(3)]: 1,
+        });
+    });
+
+    it('a one-day range is today only', () => {
+        seed_days();
+        expect(PlaylistPlayLog.range_track_plays(1)).toEqual({ 'p1|t1': 2 });
     });
 });
 
@@ -237,13 +323,13 @@ describe('count_day', () => {
 
     it('drops the oldest days beyond the cap', () => {
         const log = {};
-        for (let i = 1; i <= 60; i++) log[PlaylistPlayLog.day(i)] = 1;
+        for (let i = 1; i <= 400; i++) log[PlaylistPlayLog.day(i)] = 1;
         localStorage.setItem('spolocal_play_log', JSON.stringify(log));
         PlaylistPlayLog.count_day();
         const days = PlaylistPlayLog.day_plays();
-        expect(Object.keys(days).length).toBe(60);
-        expect(days[PlaylistPlayLog.day(60)]).toBe(undefined);
-        expect(days[PlaylistPlayLog.day(59)]).toBe(1);
+        expect(Object.keys(days).length).toBe(400);
+        expect(days[PlaylistPlayLog.day(400)]).toBe(undefined);
+        expect(days[PlaylistPlayLog.day(399)]).toBe(1);
         expect(days[PlaylistPlayLog.day(0)]).toBe(1);
     });
 });

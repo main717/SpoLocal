@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="/static/app.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script>window.__likedPlaylistId = {{ liked_playlist_id | tojson }};</script>
-    <link rel="stylesheet" href="/static/css/PlaylistPlayer.css?v=45">
+    <link rel="stylesheet" href="/static/css/PlaylistPlayer.css?v=46">
 </head>
 <body class="font-sans h-screen flex flex-col overflow-hidden">
     <!-- Top bar -->
@@ -181,6 +181,16 @@
                         <span class="text-[10px] text-[#727272]">0.5x</span>
                         <button type="button" id="settings-rate-reset" class="text-[10px] font-semibold text-[#B3B3B3] hover:text-white">Reset</button>
                         <span class="text-[10px] text-[#727272]">2x</span>
+                    </div>
+                </div>
+                <div class="settings-section">
+                    <h3 class="text-sm font-semibold text-white mb-1">Default home stats</h3>
+                    <p class="text-xs text-[#727272] mb-3">Range selected when Home opens.</p>
+                    <div id="settings-home-range" class="quality-tier-group flex gap-1" role="radiogroup" aria-label="Default home stats range">
+                        <button type="button" class="quality-tier-btn flex-1 rounded-md px-3 py-2 text-xs font-semibold" data-range="day">Day</button>
+                        <button type="button" class="quality-tier-btn flex-1 rounded-md px-3 py-2 text-xs font-semibold" data-range="week">Week</button>
+                        <button type="button" class="quality-tier-btn flex-1 rounded-md px-3 py-2 text-xs font-semibold" data-range="month">Month</button>
+                        <button type="button" class="quality-tier-btn flex-1 rounded-md px-3 py-2 text-xs font-semibold" data-range="year">Year</button>
                     </div>
                 </div>
                 <div class="settings-section">
@@ -748,7 +758,7 @@
         window.butterchurn = butterchurn && butterchurn.default ? butterchurn.default : butterchurn;
         window.dispatchEvent(new Event('spolocal-butterchurn-ready'));
     </script>
-        <script type="module" src="/static/js/PlaylistSession.mjs?v=144"></script>
+        <script type="module" src="/static/js/PlaylistSession.mjs?v=145"></script>
     <script type="module" src="/static/pwa/pwa-entry.js"></script>
     <script src="/static/js/app_shell.js?v=52" defer></script>
 </body>

@@ -1,6 +1,7 @@
 /**
  * Settings modal: playback and download quality tiers (64 / 120 / 192 kbps).
  */
+import { home_range, set_home_range } from './home_prefs.js?v=1';
 export class SettingsController {
     /** @param {import('../player/player_state.js').PlaylistPlayerState} state */
     constructor(state) {
@@ -38,6 +39,7 @@ export class SettingsController {
         hub.settingsWorkersValue = document.getElementById('settings-workers-value');
         hub.settingsWorkersReset = document.getElementById('settings-workers-reset');
         hub.settingsWorkersWarning = document.getElementById('settings-workers-warning');
+        hub.settingsHomeRange = document.getElementById('settings-home-range');
 
         if (hub.settingsOpenBtn) {
             hub.settingsOpenBtn.addEventListener('click', () => this.open());
@@ -96,6 +98,16 @@ export class SettingsController {
 
         if (hub.settingsReloadLibrary) {
             hub.settingsReloadLibrary.addEventListener('click', () => this.reload_library());
+        }
+
+        if (hub.settingsHomeRange) {
+            hub.settingsHomeRange.addEventListener('click', (e) => {
+                const btn = e.target.closest('[data-range]');
+                if (!btn) return;
+                set_home_range(btn.dataset.range);
+                this.sync_home_range();
+                if (typeof window.refreshHomeView === 'function') window.refreshHomeView();
+            });
         }
 
         if (hub.settingsWorkers) {
@@ -157,6 +169,7 @@ export class SettingsController {
 
     sync_ui() {
         const prefs = window.SpolocalQualityPrefs;
+        this.sync_home_range();
         if (!prefs) return;
         const hub = this.state.hub;
         prefs.syncTierGroup(hub.settingsPlaybackTiers, prefs.playbackKbps());
@@ -165,6 +178,18 @@ export class SettingsController {
             this.transport.update_playback_rate_ui();
         }
         this._update_labels();
+    }
+
+    /** Mirror the chosen default home range into the settings tier buttons. */
+    sync_home_range() {
+        const group = this.state.hub.settingsHomeRange;
+        if (!group) return;
+        const key = home_range();
+        group.querySelectorAll('[data-range]').forEach((btn) => {
+            const on = btn.dataset.range === key;
+            btn.classList.toggle('quality-tier-btn--active', on);
+            btn.setAttribute('aria-checked', on ? 'true' : 'false');
+        });
     }
 
     _update_labels() {

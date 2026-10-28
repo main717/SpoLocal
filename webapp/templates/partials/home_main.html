@@ -14,6 +14,8 @@
     </div>
 
     <section class="mb-8" aria-label="Listening stats">
+        <div id="home-range-tabs" class="home-range-tabs" role="tablist" aria-label="Stats range"></div>
+        <div id="home-range-hero" class="home-range-hero"></div>
         <div id="home-stats" class="home-stats"></div>
     </section>
 
@@ -26,6 +28,15 @@
             <div class="home-storage-bar"><span id="home-storage-fill"></span></div>
             <div id="home-storage-meta" class="home-stat-meta">-</div>
         </div>
+    </section>
+
+    <section class="mb-8" aria-label="Wrapped">
+        <button type="button" id="home-wrapped-card" class="home-wrapped-card">
+            <span class="home-wrapped-kicker">Your year in music</span>
+            <span class="home-wrapped-title">Wrapped <span id="home-wrapped-year"></span></span>
+            <span id="home-wrapped-meta" class="home-wrapped-meta">Your top songs, artists and playlists</span>
+            <span class="home-wrapped-open">Open</span>
+        </button>
     </section>
 
     <section class="mb-8" aria-label="Listening highlights">
@@ -54,4 +65,15 @@
         <div id="home-top-songs" class="flex flex-col gap-1"></div>
         <p id="home-songs-empty" class="hidden text-sm text-[#727272]">Play some tracks to see them here.</p>
     </section>
+
+    <div id="wrapped-overlay" class="wrapped-overlay hidden" role="dialog" aria-modal="true" aria-label="Wrapped">
+        <div id="wrapped-track" class="wrapped-track"></div>
+        <div class="wrapped-top">
+            <div id="wrapped-progress" class="wrapped-progress"></div>
+            <span id="wrapped-count" class="wrapped-count"></span>
+            <button type="button" id="wrapped-close" class="wrapped-close" aria-label="Close Wrapped">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+    </div>
 </div>

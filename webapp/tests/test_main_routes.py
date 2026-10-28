@@ -1,6 +1,7 @@
 """Route-level tests for auth gates and playlist ownership."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -119,6 +120,7 @@ class TestPlayLog:
             "track_plays": {},
             "playlist_plays": {},
             "day_plays": {},
+            "track_day_plays": {},
         }
 
     def test_guest_writes_are_ignored(self, client) -> None:
@@ -137,17 +139,24 @@ class TestPlayLog:
         assert body["track_plays"] == {"p1|t1": 2}
         assert body["playlist_plays"] == {"p1": 2}
         assert sum(body["day_plays"].values()) == 2
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        assert body["track_day_plays"] == {f"{day}|p1|t1": 2}
 
     def test_seed_merges_the_larger_count(self, client, logged_in) -> None:
         client.post("/api/play-log", json={"playlist_id": "p1", "track_id": "t1"})
         client.post(
             "/api/play-log/seed",
-            json={"track_plays": {"p1|t1": 5, "p1|t2": 2}, "playlist_plays": {"p1": 7}},
+            json={
+                "track_plays": {"p1|t1": 5, "p1|t2": 2},
+                "playlist_plays": {"p1": 7},
+                "track_day_plays": {"2026-01-01|p1|t1": 4},
+            },
         )
         client.post("/api/play-log/seed", json={"track_plays": {"p1|t1": 3}})
         body = client.get("/api/play-log").json()
         assert body["track_plays"] == {"p1|t1": 5, "p1|t2": 2}
         assert body["playlist_plays"] == {"p1": 7}
+        assert body["track_day_plays"]["2026-01-01|p1|t1"] == 4
 
     def test_counts_are_per_account(self, client, accounts) -> None:
         client.post("/api/auth/register", json={"username": "first", "password": "long enough"})

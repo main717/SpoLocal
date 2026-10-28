@@ -1,7 +1,7 @@
 /**
  * Controller owning all transport concerns for the playlist page.
  */
-import { PlaylistPlayLog } from '../playlist/play_log.js?v=2';
+import { PlaylistPlayLog } from '../playlist/play_log.js?v=3';
 
 /** Maximum number of songs the mix queue keeps ahead of the current one. */
 const MIX_WINDOW_SIZE = 50;

@@ -4,7 +4,7 @@ Registers page and API routes for search, playlists, downloads, and media servin
 Coordinates the download, metadata, and model layers to serve each request."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 import logging
@@ -552,8 +552,8 @@ class PlayLogService:
     server wins.
     """
 
-    MAX_DAYS = 60
-    COUNTER_FIELDS = ("track_plays", "playlist_plays", "day_plays")
+    MAX_DAYS = 400
+    COUNTER_FIELDS = ("track_plays", "playlist_plays", "day_plays", "track_day_plays")
 
     def __init__(self, data_root: Path) -> None:
         self.root = Path(data_root)
@@ -635,14 +635,24 @@ class PlayLogService:
             playlists = row.setdefault("playlist_plays", {})
             playlists[pid] = int(playlists.get(pid) or 0) + 1
             days = row.setdefault("day_plays", {})
+            track_days = row.setdefault("track_day_plays", {})
             stamp = (day or "").strip()[:10]
             if stamp:
                 days[stamp] = int(days.get(stamp) or 0) + 1
                 if len(days) > self.MAX_DAYS:
                     for old in sorted(days)[: len(days) - self.MAX_DAYS]:
                         del days[old]
+                day_key = f"{stamp}|{key}"
+                track_days[day_key] = int(track_days.get(day_key) or 0) + 1
+                self._prune_track_days(track_days)
             self._save()
         return True
+
+    @classmethod
+    def _prune_track_days(cls, counts: dict[str, int]) -> None:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=cls.MAX_DAYS)).strftime("%Y-%m-%d")
+        for key in [k for k in counts if k[:10] < cutoff]:
+            del counts[key]
 
     def seed(self, owner_id: Optional[str], payload: dict[str, Any]) -> bool:
         """Merge a device's local history into the account, keeping the larger count.
@@ -666,6 +676,7 @@ class PlayLogService:
             if len(days) > self.MAX_DAYS:
                 for old in sorted(days)[: len(days) - self.MAX_DAYS]:
                     del days[old]
+            self._prune_track_days(row.get("track_day_plays") or {})
             self._save()
         return True
 
@@ -682,6 +693,7 @@ class PlayLogSeedBody(BaseModel):
     track_plays: dict[str, int] = Field(default_factory=dict)
     playlist_plays: dict[str, int] = Field(default_factory=dict)
     day_plays: dict[str, int] = Field(default_factory=dict)
+    track_day_plays: dict[str, int] = Field(default_factory=dict)
 
 
 @app.get("/api/play-log")

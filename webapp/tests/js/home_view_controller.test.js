@@ -31,7 +31,13 @@ function makeController(hubOverrides = {}) {
 
 function mountHomeDom() {
     document.body.innerHTML = `
+        <div id="home-range-tabs"></div>
+        <div id="home-range-hero"></div>
         <div id="home-stats"></div>
+        <button id="home-wrapped-card">
+            <span id="home-wrapped-year"></span>
+            <span id="home-wrapped-meta"></span>
+        </button>
         <div id="home-story-track"></div>
         <button id="home-story-prev"></button>
         <button id="home-story-next"></button>
@@ -41,12 +47,24 @@ function mountHomeDom() {
         <p id="home-songs-empty" class="hidden"></p>
         <button id="home-random-toggle"></button>
         <p id="home-random-status" class="hidden"></p>
+        <div id="wrapped-overlay" class="hidden">
+            <div id="wrapped-track"></div>
+            <div id="wrapped-progress"></div>
+            <span id="wrapped-count"></span>
+            <button id="wrapped-close"></button>
+        </div>
     `;
 }
 
 function seedPlays(trackPlays, playlistPlays) {
     localStorage.setItem('spolocal_track_plays', JSON.stringify(trackPlays));
     localStorage.setItem('spolocal_playlist_plays', JSON.stringify(playlistPlays || {}));
+    const today = new Date().toISOString().slice(0, 10);
+    const days = {};
+    Object.entries(trackPlays || {}).forEach(([key, count]) => {
+        days[today + '|' + key] = count;
+    });
+    localStorage.setItem('spolocal_track_day_plays', JSON.stringify(days));
 }
 
 beforeEach(() => {
@@ -127,7 +145,7 @@ describe('build_stories', () => {
 });
 
 describe('render', () => {
-    it('renders four stat tiles', () => {
+    it('renders four stat tiles for the selected range', () => {
         const { controller, hub } = makeController();
         hub.libraryPool = [track('p1', 't1', 'One', 'Alpha')];
         seedPlays({ 'p1|t1': 2 }, { p1: 2 });
@@ -136,6 +154,49 @@ describe('render', () => {
         expect(tiles).toHaveLength(4);
         expect(tiles[0].querySelector('.home-stat-value').textContent).toBe('2');
         expect(tiles[3].querySelector('.home-stat-value').textContent).toBe('Alpha');
+    });
+
+    it('renders the range tabs and marks the saved range', () => {
+        const { controller } = makeController();
+        controller.render();
+        const tabs = document.querySelectorAll('#home-range-tabs [data-range]');
+        expect(Array.from(tabs).map((t) => t.dataset.range)).toEqual(['day', 'week', 'month', 'year']);
+        const active = document.querySelector('#home-range-tabs .home-range-tab--active');
+        expect(active.dataset.range).toBe('week');
+    });
+
+    it('switches the stats when another range is picked', () => {
+        const { controller, hub } = makeController();
+        hub.libraryPool = [track('p1', 't1', 'One', 'Alpha')];
+        seedPlays({ 'p1|t1': 2 }, { p1: 2 });
+        controller.render();
+        const old_day = new Date(Date.now() - 20 * 86400000).toISOString().slice(0, 10);
+        localStorage.setItem('spolocal_track_day_plays', JSON.stringify({
+            [old_day + '|p1|t1']: 5,
+        }));
+        document.querySelector('#home-range-tabs [data-range="month"]').click();
+        const tiles = document.querySelectorAll('#home-stats .home-stat');
+        expect(tiles[0].querySelector('.home-stat-value').textContent).toBe('5');
+        expect(localStorage.getItem('spolocal_home_range')).toBe('month');
+    });
+
+    it('shows the top song of the range in the hero', () => {
+        const { controller, hub } = makeController();
+        hub.libraryPool = [track('p1', 't1', 'One', 'Alpha')];
+        seedPlays({ 'p1|t1': 2 }, { p1: 2 });
+        controller.render();
+        const hero = document.querySelector('#home-range-hero .home-hero');
+        expect(hero.querySelector('.home-hero-title').textContent).toBe('One');
+        expect(hero.querySelector('.home-hero-plays').textContent).toBe('2 plays');
+    });
+
+    it('labels the Wrapped card with the year and play count', () => {
+        const { controller, hub } = makeController();
+        hub.libraryPool = [track('p1', 't1', 'One', 'Alpha')];
+        seedPlays({ 'p1|t1': 2 }, { p1: 2 });
+        controller.render();
+        expect(document.getElementById('home-wrapped-year').textContent).toBe(String(new Date().getFullYear()));
+        expect(document.getElementById('home-wrapped-meta').textContent).toBe('2 plays in 1 song');
     });
 
     it('renders ranked song rows with counts and bars', () => {

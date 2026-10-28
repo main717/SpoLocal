@@ -9,9 +9,10 @@
 const TRACKS_KEY = 'spolocal_track_plays';
 const PLAYLISTS_KEY = 'spolocal_playlist_plays';
 const DAYS_KEY = 'spolocal_play_log';
+const TRACK_DAYS_KEY = 'spolocal_track_day_plays';
 const SYNCED_KEY = 'spolocal_play_log_synced';
-const MAX_DAYS = 60;
-const COUNTER_FIELDS = ['track_plays', 'playlist_plays', 'day_plays'];
+const MAX_DAYS = 400;
+const COUNTER_FIELDS = ['track_plays', 'playlist_plays', 'day_plays', 'track_day_plays'];
 
 export class PlaylistPlayLog {
     static track_key(playlist_id, track_id) {
@@ -46,6 +47,10 @@ export class PlaylistPlayLog {
         return PlaylistPlayLog.read(DAYS_KEY);
     }
 
+    static track_day_plays() {
+        return PlaylistPlayLog.read(TRACK_DAYS_KEY);
+    }
+
     /** Count one play of a track, its playlist and the day. */
     static count_track(playlist_id, track_id) {
         const pid = String(playlist_id || '').trim();
@@ -59,7 +64,20 @@ export class PlaylistPlayLog {
         playlists[pid] = (Number(playlists[pid]) || 0) + 1;
         PlaylistPlayLog.write(PLAYLISTS_KEY, playlists);
         PlaylistPlayLog.count_day();
+        PlaylistPlayLog.count_track_day(pid, tid);
         PlaylistPlayLog.push(pid, tid);
+    }
+
+    /** Per-track counts for one day, so ranges can rank songs honestly. */
+    static count_track_day(pid, tid) {
+        const counts = PlaylistPlayLog.track_day_plays();
+        const key = PlaylistPlayLog.day(0) + '|' + PlaylistPlayLog.track_key(pid, tid);
+        counts[key] = (Number(counts[key]) || 0) + 1;
+        const cutoff = PlaylistPlayLog.day(MAX_DAYS);
+        Object.keys(counts).forEach((k) => {
+            if (k.slice(0, 10) < cutoff) delete counts[k];
+        });
+        PlaylistPlayLog.write(TRACK_DAYS_KEY, counts);
     }
 
     /** Per-day counts, capped so the log cannot grow without bound. */
@@ -77,6 +95,55 @@ export class PlaylistPlayLog {
         return new Date(Date.now() - (offset_days || 0) * 86400000).toISOString().slice(0, 10);
     }
 
+    /** Calendar days covered by a range, today included. */
+    static range_days(days) {
+        const wanted = new Set();
+        const count = Math.max(1, Number(days) || 1);
+        for (let i = 0; i < count; i++) wanted.add(PlaylistPlayLog.day(i));
+        return wanted;
+    }
+
+    /** Track counts inside a range, keyed ``playlist|track``. */
+    static range_track_plays(days) {
+        const counts = PlaylistPlayLog.track_day_plays();
+        const wanted = PlaylistPlayLog.range_days(days);
+        const out = {};
+        Object.keys(counts).forEach((key) => {
+            if (!wanted.has(key.slice(0, 10))) return;
+            const track = key.slice(11);
+            if (!track) return;
+            out[track] = (Number(out[track]) || 0) + (Number(counts[key]) || 0);
+        });
+        return out;
+    }
+
+    /** Playlist counts inside a range, keyed by playlist id. */
+    static range_playlist_plays(days) {
+        const counts = PlaylistPlayLog.track_day_plays();
+        const wanted = PlaylistPlayLog.range_days(days);
+        const out = {};
+        Object.keys(counts).forEach((key) => {
+            if (!wanted.has(key.slice(0, 10))) return;
+            const rest = key.slice(11);
+            const bar = rest.indexOf('|');
+            if (bar <= 0) return;
+            const pid = rest.slice(0, bar);
+            out[pid] = (Number(out[pid]) || 0) + (Number(counts[key]) || 0);
+        });
+        return out;
+    }
+
+    /** Day totals inside a range, keyed ``YYYY-MM-DD``. */
+    static range_day_plays(days) {
+        const counts = PlaylistPlayLog.day_plays();
+        const wanted = PlaylistPlayLog.range_days(days);
+        const out = {};
+        wanted.forEach((stamp) => {
+            if (counts[stamp]) out[stamp] = Number(counts[stamp]) || 0;
+        });
+        return out;
+    }
+
     /** Plays in the last seven days, today included. */
     static week_plays() {
         const days = PlaylistPlayLog.day_plays();
@@ -90,6 +157,7 @@ export class PlaylistPlayLog {
             track_plays: PlaylistPlayLog.track_plays(),
             playlist_plays: PlaylistPlayLog.playlist_plays(),
             day_plays: PlaylistPlayLog.day_plays(),
+            track_day_plays: PlaylistPlayLog.track_day_plays(),
         };
     }
 
@@ -148,6 +216,7 @@ export class PlaylistPlayLog {
             PlaylistPlayLog.write(TRACKS_KEY, server.track_plays || {});
             PlaylistPlayLog.write(PLAYLISTS_KEY, server.playlist_plays || {});
             PlaylistPlayLog.write(DAYS_KEY, server.day_plays || {});
+            PlaylistPlayLog.write(TRACK_DAYS_KEY, server.track_day_plays || {});
             PlaylistPlayLog.mark_synced();
             return true;
         } catch (e) {
