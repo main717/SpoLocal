@@ -34,6 +34,10 @@ export class PlaylistWrappedView {
         this._tracks = [];
         this._track_index = 0;
         this._main_was_playing = false;
+        this._durations = [];
+        this._adv = null;
+        this._ticker = 0;
+        this._jumping = false;
     }
 
     static plays_label(count) {
@@ -199,12 +203,16 @@ export class PlaylistWrappedView {
         this.activate_slide(track && track.children.length ? track.children[0] : null);
         this.sync_progress();
         this.start_audio();
+        this.start_ticker();
     }
 
     close() {
         const overlay = document.getElementById('wrapped-overlay');
         if (overlay) overlay.classList.add('hidden');
         document.body.classList.remove('wrapped-open');
+        this.stop_ticker();
+        this._adv = null;
+        this._jumping = false;
         this.stop_audio();
         this.resume_main();
     }
@@ -224,6 +232,7 @@ export class PlaylistWrappedView {
         }
         const count = document.getElementById('wrapped-count');
         if (count) count.textContent = '1 / ' + slides.length;
+        this._durations = slides.map((slide) => this.slide_duration(slide));
         this.observe_slides();
     }
 
@@ -466,6 +475,94 @@ export class PlaylistWrappedView {
         } catch (e) {}
     }
 
+    /** Dwell time per slide; lists get longer because there is more to read. */
+    slide_duration(slide) {
+        const items = (slide.items || []).length;
+        if (items) return Math.min(11000, 5500 + items * 900);
+        if (slide.theme === 'intro') return 5500;
+        if (slide.theme === 'outro') return 7500;
+        return 6500;
+    }
+
+    reset_advance(index) {
+        const dur = this._durations[index] || 6500;
+        this._adv = { index, elapsed: 0, last: 0, dur, paused: false };
+    }
+
+    start_ticker() {
+        if (this._ticker) return;
+        this._ticker = requestAnimationFrame((now) => this.tick(now));
+    }
+
+    stop_ticker() {
+        if (this._ticker) cancelAnimationFrame(this._ticker);
+        this._ticker = 0;
+    }
+
+    /** One frame of the dwell timer, which also paints the progress bar. */
+    tick(now) {
+        if (!this.is_open()) {
+            this._ticker = 0;
+            return;
+        }
+        const adv = this._adv;
+        if (adv) {
+            if (!adv.last) adv.last = now;
+            const delta = Math.max(0, now - adv.last);
+            adv.last = now;
+            const frozen = adv.paused || this._jumping;
+            if (!frozen) adv.elapsed += delta;
+            this.paint_fill(adv.index, Math.min(1, adv.elapsed / adv.dur));
+            if (!frozen && adv.elapsed >= adv.dur) this.advance_next();
+        }
+        this._ticker = requestAnimationFrame((t) => this.tick(t));
+    }
+
+    paint_fill(index, frac) {
+        const progress = document.getElementById('wrapped-progress');
+        if (!progress) return;
+        const seg = progress.children[index];
+        const fill = seg && seg.querySelector('.wrapped-progress-fill');
+        if (fill) fill.style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + '%';
+    }
+
+    advance_next() {
+        const track = document.getElementById('wrapped-track');
+        if (!track) return;
+        const step = track.clientHeight || 1;
+        const index = Math.round(track.scrollTop / step);
+        const next = index + 1;
+        if (next > track.children.length - 1) {
+            this._adv = null;
+            this.paint_fill(index, 1);
+            return;
+        }
+        this.go_to(next);
+    }
+
+    go_to(index) {
+        const track = document.getElementById('wrapped-track');
+        if (!track) return;
+        const step = track.clientHeight || 1;
+        const last = Math.max(0, track.children.length - 1);
+        const target = Math.max(0, Math.min(index, last));
+        this._jumping = true;
+        this.reset_advance(target);
+        const behavior = PlaylistWrappedView.reduced_motion() ? 'auto' : 'smooth';
+        if (typeof track.scrollTo === 'function') {
+            track.scrollTo({ top: target * step, behavior });
+        } else {
+            track.scrollTop = target * step;
+        }
+        setTimeout(() => { this._jumping = false; }, 800);
+    }
+
+    set_advance_paused(on) {
+        if (!this._adv) return;
+        this._adv.paused = !!on;
+        this._adv.last = 0;
+    }
+
     bind() {
         Dom.bind_once(document.getElementById('wrapped-close'), 'wrappedClose', 'click', () => this.close());
         Dom.bind_once(document.getElementById('wrapped-sound'), 'wrappedSound', 'click', () => this.toggle_sound());
@@ -483,9 +580,15 @@ export class PlaylistWrappedView {
                     this.step(1);
                 });
             }
+            Dom.bind_once(track, 'wrappedHold', 'pointerdown', () => this.set_advance_paused(true));
+            Dom.bind_once(track, 'wrappedHoldEnd', 'pointerup', () => this.set_advance_paused(false));
+            Dom.bind_once(track, 'wrappedHoldCancel', 'pointercancel', () => this.set_advance_paused(false));
         }
         if (!this._keysBound) {
             this._keysBound = true;
+            document.addEventListener('visibilitychange', () => {
+                this.set_advance_paused(document.hidden);
+            });
             document.addEventListener('keydown', (e) => {
                 if (!this.is_open()) return;
                 if (e.key === 'Escape') {
@@ -524,6 +627,14 @@ export class PlaylistWrappedView {
         const index = Math.round(pos);
         const last = Math.max(0, progress.children.length - 1);
         const clamped = Math.max(0, Math.min(pos, last));
+        if (!this._jumping) {
+            if (index >= last) {
+                this._adv = null;
+                this.paint_fill(index, 1);
+            } else if (!this._adv || this._adv.index !== index) {
+                this.reset_advance(index);
+            }
+        }
         Array.from(track.children).forEach((el, i) => {
             el.classList.toggle('is-current', i === index);
         });
@@ -532,7 +643,7 @@ export class PlaylistWrappedView {
             seg.classList.toggle('is-done', i < index);
             const fill = seg.querySelector('.wrapped-progress-fill');
             if (fill) {
-                const part = Math.max(0, Math.min(1, clamped - i));
+                const part = i === index && index === last ? 1 : Math.max(0, Math.min(1, clamped - i));
                 fill.style.width = (part * 100).toFixed(1) + '%';
             }
         });

@@ -9,7 +9,7 @@
 import { Dom } from '../ui/dom.js?v=1';
 import { HOME_RANGES, home_range, home_range_def, set_home_range } from '../ui/home_prefs.js?v=1';
 import { PlaylistPlayLog } from './play_log.js?v=3';
-import { PlaylistWrappedView } from './wrapped_view.js?v=3';
+import { PlaylistWrappedView } from './wrapped_view.js?v=4';
 
 export class PlaylistHomeViewController {
     /** @param {import('../player/player_state.js').PlaylistPlayerState} state */

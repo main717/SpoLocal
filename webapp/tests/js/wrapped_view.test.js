@@ -40,6 +40,7 @@ beforeEach(() => {
     document.body.classList.remove('wrapped-open');
     localStorage.clear();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     window.HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
     window.HTMLMediaElement.prototype.pause = vi.fn();
     window.HTMLMediaElement.prototype.load = vi.fn();
@@ -282,6 +283,69 @@ describe('animation hooks', () => {
         view.sync_progress();
         expect(slides[1].classList.contains('is-current')).toBe(true);
         expect(segs[0].querySelector('.wrapped-progress-fill').style.width).toBe('100%');
+    });
+});
+
+describe('auto advance', () => {
+    function setup() {
+        const view = makeView(data({
+            total: 2,
+            songs: [{ key: 'p1|t1', count: 2, track: { title: 'One', artist: 'A' } }],
+            artists: [{ name: 'A', plays: 2 }],
+        }));
+        const track = document.getElementById('wrapped-track');
+        Object.defineProperty(track, 'clientHeight', { value: 500, configurable: true });
+        Object.defineProperty(track, 'scrollTop', { value: 0, writable: true, configurable: true });
+        track.scrollTo = vi.fn();
+        return { view, track };
+    }
+
+    it('moves to the next slide when the dwell time is up', () => {
+        vi.stubGlobal('requestAnimationFrame', () => 0);
+        const { view, track } = setup();
+        view.open();
+        view.tick(1000);
+        view.tick(1000 + view._adv.dur + 10);
+        expect(track.scrollTo).toHaveBeenCalledWith({ top: 500, behavior: 'smooth' });
+        expect(view._adv.index).toBe(1);
+    });
+
+    it('holds still while paused', () => {
+        vi.stubGlobal('requestAnimationFrame', () => 0);
+        const { view, track } = setup();
+        view.open();
+        view.set_advance_paused(true);
+        view.tick(1000);
+        view.tick(1000000);
+        expect(track.scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('stops on the last slide', () => {
+        vi.stubGlobal('requestAnimationFrame', () => 0);
+        const { view, track } = setup();
+        view.open();
+        track.scrollTop = (track.children.length - 1) * 500;
+        view.sync_progress();
+        view.tick(1000);
+        view.tick(1000000);
+        expect(track.scrollTo).not.toHaveBeenCalled();
+        expect(view._adv).toBe(null);
+    });
+
+    it('restarts the timer when the reader scrolls by hand', () => {
+        vi.stubGlobal('requestAnimationFrame', () => 0);
+        const { view, track } = setup();
+        view.open();
+        track.scrollTop = 500;
+        view.sync_progress();
+        expect(view._adv.index).toBe(1);
+        expect(view._adv.elapsed).toBe(0);
+    });
+
+    it('gives lists a longer dwell than a plain slide', () => {
+        const view = makeView(data());
+        expect(view.slide_duration({ theme: 'songs', items: [1, 2, 3, 4, 5] }))
+            .toBeGreaterThan(view.slide_duration({ theme: 'intro' }));
     });
 });
 

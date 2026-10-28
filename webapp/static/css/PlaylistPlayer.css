@@ -1508,7 +1508,7 @@ body.wrapped-open { overflow: hidden; }
     transition: width 0.15s linear;
 }
 .wrapped-progress-seg.is-done { background: rgba(255, 255, 255, 0.75); }
-.wrapped-progress-seg.is-active { background: #fff; transform: scaleY(1.6); }
+.wrapped-progress-seg.is-active { background: rgba(255, 255, 255, 0.3); transform: scaleY(1.6); }
 .wrapped-count {
     flex: 0 0 auto;
     font-size: 0.6875rem;
