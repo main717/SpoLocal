@@ -1222,6 +1222,7 @@ body.wrapped-open { overflow: hidden; }
 .wrapped-track::-webkit-scrollbar { display: none; }
 .wrapped-slide {
     position: relative;
+    overflow: hidden;
     height: 100%;
     min-height: 100%;
     scroll-snap-align: start;
@@ -1237,6 +1238,20 @@ body.wrapped-open { overflow: hidden; }
         linear-gradient(160deg, var(--wrapped-a, #1DB954) 0%, var(--wrapped-b, #0b3d22) 100%);
 }
 .wrapped-slide--intro { --wrapped-a: #1DB954; --wrapped-b: #06371b; }
+/* Slow drifting glow layer, one palette per open. */
+.wrapped-slide::before {
+    content: '';
+    position: absolute;
+    inset: -25%;
+    z-index: 0;
+    pointer-events: none;
+    background: radial-gradient(circle at 30% 30%, var(--wrapped-glow, rgba(255, 255, 255, 0.18)), transparent 60%);
+    animation: wrapped-drift var(--wrapped-drift-dur, 16s) ease-in-out infinite alternate;
+}
+@keyframes wrapped-drift {
+    from { transform: translate(var(--wrapped-dx, 0), var(--wrapped-dy, 0)) scale(1); }
+    to { transform: translate(calc(var(--wrapped-dx, 0) * -1), calc(var(--wrapped-dy, 0) * -1)) scale(1.15); }
+}
 .wrapped-slide--empty { --wrapped-a: #2b2b2b; --wrapped-b: #121212; }
 .wrapped-slide--plays { --wrapped-a: #8e44ad; --wrapped-b: #2c0f3d; }
 .wrapped-slide--song { --wrapped-a: #e67e22; --wrapped-b: #3d1f05; }
@@ -1257,10 +1272,20 @@ body.wrapped-open { overflow: hidden; }
 .wrapped-slide--n8 { --wrapped-glow: rgba(255, 255, 255, 0.22); }
 .wrapped-slide--n9 { --wrapped-glow: rgba(255, 190, 120, 0.26); }
 .wrapped-slide-inner {
+    position: relative;
+    z-index: 1;
     width: 100%;
     max-width: 34rem;
     margin: 0 auto;
 }
+/* Staggered entrance: kicker, title, meta, art, list fade and rise in order. */
+.wrapped-slide-inner > * {
+    opacity: 0;
+    transform: translate(var(--wrapped-from-x, 0), 1.25rem);
+    transition: opacity 0.55s ease, transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-delay: calc(var(--wrapped-i, 0) * 90ms);
+}
+.wrapped-slide.is-active .wrapped-slide-inner > * { opacity: 1; transform: none; }
 .wrapped-kicker {
     font-size: 0.6875rem;
     text-transform: uppercase;
@@ -1296,6 +1321,11 @@ body.wrapped-open { overflow: hidden; }
     box-shadow: 0 1rem 2.5rem rgba(0, 0, 0, 0.45);
     background: rgba(0, 0, 0, 0.25);
 }
+.wrapped-slide.is-active .wrapped-art { animation: wrapped-float 6s ease-in-out infinite; }
+@keyframes wrapped-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+}
 .wrapped-art img { width: 100%; height: 100%; object-fit: cover; }
 .wrapped-list {
     display: flex;
@@ -1311,7 +1341,12 @@ body.wrapped-open { overflow: hidden; }
     border-radius: 0.5rem;
     padding: 0.4375rem 0.625rem;
     background: rgba(0, 0, 0, 0.28);
+    opacity: 0;
+    transform: translateX(1.5rem);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-delay: calc(350ms + var(--wrapped-i, 0) * 70ms);
 }
+.wrapped-slide.is-active .wrapped-item { opacity: 1; transform: none; }
 .wrapped-rank {
     flex: 0 0 auto;
     width: 1.125rem;
@@ -1375,10 +1410,10 @@ body.wrapped-open { overflow: hidden; }
     height: 3px;
     border-radius: 9999px;
     background: rgba(255, 255, 255, 0.3);
-    transition: background 0.2s ease;
+    transition: background 0.25s ease, transform 0.25s ease;
 }
 .wrapped-progress-seg.is-done { background: rgba(255, 255, 255, 0.75); }
-.wrapped-progress-seg.is-active { background: #fff; }
+.wrapped-progress-seg.is-active { background: #fff; transform: scaleY(1.6); }
 .wrapped-count {
     flex: 0 0 auto;
     font-size: 0.6875rem;
@@ -1386,7 +1421,8 @@ body.wrapped-open { overflow: hidden; }
     opacity: 0.85;
     font-variant-numeric: tabular-nums;
 }
-.wrapped-close {
+.wrapped-close,
+.wrapped-sound {
     flex: 0 0 auto;
     height: 1.875rem;
     width: 1.875rem;
@@ -1398,7 +1434,18 @@ body.wrapped-open { overflow: hidden; }
     color: #fff;
     font-size: 0.8125rem;
 }
-.wrapped-close:hover { background: rgba(0, 0, 0, 0.7); }
+.wrapped-close:hover,
+.wrapped-sound:hover { background: rgba(0, 0, 0, 0.7); }
+@media (prefers-reduced-motion: reduce) {
+    .wrapped-slide-inner > *,
+    .wrapped-list .wrapped-item {
+        opacity: 1 !important;
+        transform: none !important;
+        transition: none !important;
+    }
+    .wrapped-slide::before,
+    .wrapped-slide.is-active .wrapped-art { animation: none !important; }
+}
 @media (max-width: 640px) {
     .home-hero-side { display: none; }
     .home-range-tabs { width: 100%; }

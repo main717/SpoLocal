@@ -68,9 +68,13 @@
 
     <div id="wrapped-overlay" class="wrapped-overlay hidden" role="dialog" aria-modal="true" aria-label="Wrapped">
         <div id="wrapped-track" class="wrapped-track"></div>
+        <audio id="wrapped-audio" preload="auto"></audio>
         <div class="wrapped-top">
             <div id="wrapped-progress" class="wrapped-progress"></div>
             <span id="wrapped-count" class="wrapped-count"></span>
+            <button type="button" id="wrapped-sound" class="wrapped-sound" aria-label="Mute soundtrack" aria-pressed="true">
+                <i class="fa-solid fa-volume-high"></i>
+            </button>
             <button type="button" id="wrapped-close" class="wrapped-close" aria-label="Close Wrapped">
                 <i class="fa-solid fa-xmark"></i>
             </button>

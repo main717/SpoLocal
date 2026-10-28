@@ -22,8 +22,10 @@ function mountDom() {
     document.body.innerHTML = `
         <div id="wrapped-overlay" class="hidden">
             <div id="wrapped-track"></div>
+            <audio id="wrapped-audio" preload="auto"></audio>
             <div id="wrapped-progress"></div>
             <span id="wrapped-count"></span>
+            <button id="wrapped-sound" aria-pressed="true"><i class="fa-solid fa-volume-high"></i></button>
             <button id="wrapped-close"></button>
         </div>
     `;
@@ -36,6 +38,11 @@ function makeView(payload) {
 beforeEach(() => {
     document.body.innerHTML = '';
     document.body.classList.remove('wrapped-open');
+    localStorage.clear();
+    vi.restoreAllMocks();
+    window.HTMLMediaElement.prototype.play = vi.fn(() => Promise.resolve());
+    window.HTMLMediaElement.prototype.pause = vi.fn();
+    window.HTMLMediaElement.prototype.load = vi.fn();
     mountDom();
 });
 
@@ -150,6 +157,97 @@ describe('overlay', () => {
         expect(items[0].querySelector('.wrapped-item-title').textContent).toBe('One');
         expect(items[0].querySelector('.wrapped-item-count').textContent).toBe('5 plays');
         expect(items[0].querySelector('.wrapped-item-art img')).not.toBe(null);
+    });
+});
+
+describe('soundtrack', () => {
+    function with_tracks() {
+        return data({
+            total: 4,
+            songs: [
+                { key: 'p1|t1', count: 2, track: { title: 'One', artist: 'A', play_src: '/stream/1' } },
+                { key: 'p1|t2', count: 2, track: { title: 'Two', artist: 'B', play_src: '/stream/2' } },
+            ],
+            artists: [{ name: 'A', plays: 2 }],
+        });
+    }
+
+    it('starts the first top song on open', () => {
+        const view = makeView(with_tracks());
+        view.open();
+        const audio = document.getElementById('wrapped-audio');
+        expect(audio.getAttribute('src')).toBe('/stream/1');
+        expect(audio.play).toHaveBeenCalled();
+    });
+
+    it('walks the top songs in order and wraps around', () => {
+        const view = makeView(with_tracks());
+        view.open();
+        const audio = document.getElementById('wrapped-audio');
+        view.next_track();
+        expect(audio.getAttribute('src')).toBe('/stream/2');
+        view.next_track();
+        expect(audio.getAttribute('src')).toBe('/stream/1');
+    });
+
+    it('keeps the source empty when no top song can stream', () => {
+        const view = makeView(data({ total: 1 }));
+        view.open();
+        expect(document.getElementById('wrapped-audio').getAttribute('src')).toBe(null);
+    });
+
+    it('toggles the soundtrack and remembers the choice', () => {
+        const view = makeView(with_tracks());
+        view.open();
+        const btn = document.getElementById('wrapped-sound');
+        btn.click();
+        expect(btn.getAttribute('aria-pressed')).toBe('false');
+        expect(localStorage.getItem('spolocal_wrapped_sound')).toBe('0');
+        btn.click();
+        expect(btn.getAttribute('aria-pressed')).toBe('true');
+        expect(localStorage.getItem('spolocal_wrapped_sound')).toBe('1');
+    });
+
+    it('stops the soundtrack when closed', () => {
+        const view = makeView(with_tracks());
+        view.open();
+        const audio = document.getElementById('wrapped-audio');
+        view.close();
+        expect(audio.pause).toHaveBeenCalled();
+        expect(audio.getAttribute('src')).toBe(null);
+    });
+});
+
+describe('animation hooks', () => {
+    it('marks the first slide active on open', () => {
+        const view = makeView(data({
+            total: 2,
+            songs: [{ key: 'p1|t1', count: 2, track: { title: 'One', artist: 'A' } }],
+        }));
+        view.open();
+        expect(document.querySelector('.wrapped-slide').classList.contains('is-active')).toBe(true);
+    });
+
+    it('activates a slide only once', () => {
+        const view = makeView(data({
+            total: 2,
+            songs: [{ key: 'p1|t1', count: 2, track: { title: 'One', artist: 'A' } }],
+        }));
+        view.open();
+        const slide = document.querySelector('.wrapped-slide');
+        const spy = vi.spyOn(view, 'count_up');
+        view.activate_slide(slide);
+        expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('sets the final number straight away under reduced motion', () => {
+        vi.spyOn(PlaylistWrappedView, 'reduced_motion').mockReturnValue(true);
+        const view = makeView(data());
+        const node = document.createElement('span');
+        node.dataset.countTo = '12';
+        node.dataset.countSuffix = ' plays';
+        view.count_up(node);
+        expect(node.textContent).toBe('12 plays');
     });
 });
 
