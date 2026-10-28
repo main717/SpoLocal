@@ -9,7 +9,7 @@ import { PlaylistEditModalController } from '../ui/edit_modal_controller.js';
 import { PlaylistContextMenuController } from '../ui/context_menu_controller.js?v=96';
 import { PlaylistDownloadController } from '../services/download_controller.js?v=95';
 import { PlaylistColumnResizer } from '../ui/column_resizer.js';
-import { PlaylistHomeViewController } from './home_view_controller.js?v=98';
+import { PlaylistHomeViewController } from './home_view_controller.js?v=99';
 import { PlaylistPlayLog } from './play_log.js?v=3';
 import { SettingsController } from '../ui/settings_controller.js?v=6';
 import { AccountController } from '../ui/account_controller.js?v=3';

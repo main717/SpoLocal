@@ -249,6 +249,40 @@ describe('animation hooks', () => {
         view.count_up(node);
         expect(node.textContent).toBe('12 plays');
     });
+
+    it('splits a headline into staggered words', () => {
+        const view = makeView(data({
+            total: 1,
+            songs: [{ key: 'p1|t1', count: 1, track: { title: 'One', artist: 'A' } }],
+        }));
+        view.open();
+        const title = document.querySelector('.wrapped-slide--intro .wrapped-title');
+        expect(title.textContent).toBe('Wrapped ' + year);
+        expect(title.querySelectorAll('.wrapped-word')).toHaveLength(2);
+    });
+
+    it('marks the nearest slide current and fills progress with the scroll', () => {
+        const view = makeView(data({
+            total: 1,
+            songs: [{ key: 'p1|t1', count: 1, track: { title: 'One', artist: 'A' } }],
+        }));
+        view.open();
+        const track = document.getElementById('wrapped-track');
+        Object.defineProperty(track, 'clientHeight', { value: 400, configurable: true });
+        Object.defineProperty(track, 'scrollTop', { value: 120, writable: true, configurable: true });
+
+        view.sync_progress();
+        const slides = document.querySelectorAll('#wrapped-track .wrapped-slide');
+        const segs = document.querySelectorAll('#wrapped-progress .wrapped-progress-seg');
+        expect(slides[0].classList.contains('is-current')).toBe(true);
+        expect(slides[1].classList.contains('is-current')).toBe(false);
+        expect(segs[0].querySelector('.wrapped-progress-fill').style.width).toBe('30%');
+
+        track.scrollTop = 400;
+        view.sync_progress();
+        expect(slides[1].classList.contains('is-current')).toBe(true);
+        expect(segs[0].querySelector('.wrapped-progress-fill').style.width).toBe('100%');
+    });
 });
 
 describe('step', () => {

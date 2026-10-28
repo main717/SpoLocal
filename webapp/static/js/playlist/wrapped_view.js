@@ -216,7 +216,11 @@ export class PlaylistWrappedView {
         track.replaceChildren(...slides.map((slide, index) => this.slide_el(slide, index)));
         const progress = document.getElementById('wrapped-progress');
         if (progress) {
-            progress.replaceChildren(...slides.map(() => Dom.el('span', 'wrapped-progress-seg')));
+            progress.replaceChildren(...slides.map(() => {
+                const seg = Dom.el('span', 'wrapped-progress-seg');
+                seg.appendChild(Dom.el('span', 'wrapped-progress-fill'));
+                return seg;
+            }));
         }
         const count = document.getElementById('wrapped-count');
         if (count) count.textContent = '1 / ' + slides.length;
@@ -233,8 +237,21 @@ export class PlaylistWrappedView {
         el.style.setProperty('--wrapped-dy', index % 3 ? '7%' : '-7%');
         el.style.setProperty('--wrapped-drift-dur', (14 + (index % 5) * 2) + 's');
         const inner = Dom.el('div', 'wrapped-slide-inner');
-        const title = Dom.el('div', 'wrapped-title', slide.title || '');
-        if (/^\d+$/.test(String(slide.title || ''))) title.dataset.countTo = String(slide.title);
+        const title_text = String(slide.title || '');
+        const title = Dom.el('div', 'wrapped-title');
+        if (/^\d+$/.test(title_text)) {
+            title.textContent = title_text;
+            title.dataset.countTo = title_text;
+        } else {
+            title.classList.add('wrapped-title--words');
+            // Split the headline so each word can arrive on its own beat.
+            title_text.split(/\s+/).filter(Boolean).forEach((word, w) => {
+                if (w) title.appendChild(document.createTextNode(' '));
+                const span = Dom.el('span', 'wrapped-word', word);
+                span.style.setProperty('--wrapped-w', String(w));
+                title.appendChild(span);
+            });
+        }
         inner.append(
             Dom.el('div', 'wrapped-kicker', slide.kicker || ''),
             title,
@@ -322,6 +339,7 @@ export class PlaylistWrappedView {
             const eased = 1 - Math.pow(1 - t, 3);
             node.textContent = String(Math.round(target * eased)) + suffix;
             if (t < 1) requestAnimationFrame(tick);
+            else node.classList.add('is-done');
         };
         requestAnimationFrame(tick);
     }
@@ -502,10 +520,21 @@ export class PlaylistWrappedView {
         const progress = document.getElementById('wrapped-progress');
         if (!track || !progress) return;
         const step = track.clientHeight || 1;
-        const index = Math.round(track.scrollTop / step);
+        const pos = track.scrollTop / step;
+        const index = Math.round(pos);
+        const last = Math.max(0, progress.children.length - 1);
+        const clamped = Math.max(0, Math.min(pos, last));
+        Array.from(track.children).forEach((el, i) => {
+            el.classList.toggle('is-current', i === index);
+        });
         progress.querySelectorAll('.wrapped-progress-seg').forEach((seg, i) => {
             seg.classList.toggle('is-active', i === index);
             seg.classList.toggle('is-done', i < index);
+            const fill = seg.querySelector('.wrapped-progress-fill');
+            if (fill) {
+                const part = Math.max(0, Math.min(1, clamped - i));
+                fill.style.width = (part * 100).toFixed(1) + '%';
+            }
         });
         const count = document.getElementById('wrapped-count');
         if (count) count.textContent = Math.min(index + 1, progress.children.length) + ' / ' + progress.children.length;

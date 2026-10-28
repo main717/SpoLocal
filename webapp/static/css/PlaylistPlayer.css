@@ -1233,10 +1233,14 @@ body.wrapped-open { overflow: hidden; }
     padding: 4.5rem 1.5rem 3rem;
     color: #fff;
     text-align: center;
+    opacity: 0.45;
+    transform: scale(0.95);
+    transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.2, 0.8, 0.2, 1);
     background-image:
         radial-gradient(circle at 78% 10%, var(--wrapped-glow, rgba(255, 255, 255, 0.18)), transparent 55%),
         linear-gradient(160deg, var(--wrapped-a, #1DB954) 0%, var(--wrapped-b, #0b3d22) 100%);
 }
+.wrapped-slide.is-current { opacity: 1; transform: none; }
 .wrapped-slide--intro { --wrapped-a: #1DB954; --wrapped-b: #06371b; }
 /* Slow drifting glow layer, one palette per open. */
 .wrapped-slide::before {
@@ -1251,6 +1255,24 @@ body.wrapped-open { overflow: hidden; }
 @keyframes wrapped-drift {
     from { transform: translate(var(--wrapped-dx, 0), var(--wrapped-dy, 0)) scale(1); }
     to { transform: translate(calc(var(--wrapped-dx, 0) * -1), calc(var(--wrapped-dy, 0) * -1)) scale(1.15); }
+}
+/* Second, softer aurora layer on its own timing, so the background never sits still. */
+.wrapped-slide::after {
+    content: '';
+    position: absolute;
+    inset: -30%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.55;
+    filter: blur(45px);
+    background:
+        radial-gradient(circle at 22% 72%, var(--wrapped-glow, rgba(255, 255, 255, 0.2)), transparent 55%),
+        radial-gradient(circle at 78% 26%, var(--wrapped-glow, rgba(255, 255, 255, 0.2)), transparent 50%);
+    animation: wrapped-aurora calc(var(--wrapped-drift-dur, 16s) * 1.4) ease-in-out infinite alternate;
+}
+@keyframes wrapped-aurora {
+    from { transform: translate3d(-4%, 3%, 0) rotate(-6deg) scale(1); }
+    to { transform: translate3d(5%, -4%, 0) rotate(8deg) scale(1.2); }
 }
 .wrapped-slide--empty { --wrapped-a: #2b2b2b; --wrapped-b: #121212; }
 .wrapped-slide--plays { --wrapped-a: #8e44ad; --wrapped-b: #2c0f3d; }
@@ -1286,6 +1308,25 @@ body.wrapped-open { overflow: hidden; }
     transition-delay: calc(var(--wrapped-i, 0) * 90ms);
 }
 .wrapped-slide.is-active .wrapped-slide-inner > * { opacity: 1; transform: none; }
+/* The title animates word by word instead of as one block. */
+.wrapped-slide-inner > .wrapped-title--words {
+    opacity: 1;
+    transform: none;
+    transition: letter-spacing 1s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.wrapped-word {
+    display: inline-block;
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(0.7em) scale(0.94);
+    transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.2, 0.9, 0.2, 1), filter 0.6s ease;
+    transition-delay: calc(120ms + var(--wrapped-i, 0) * 90ms + var(--wrapped-w, 0) * 45ms);
+}
+.wrapped-slide.is-active .wrapped-word { opacity: 1; filter: none; transform: none; }
+.wrapped-slide--intro .wrapped-title,
+.wrapped-slide--outro .wrapped-title { letter-spacing: 0.14em; }
+.wrapped-slide--intro.is-active .wrapped-title,
+.wrapped-slide--outro.is-active .wrapped-title { letter-spacing: -0.03em; }
 .wrapped-kicker {
     font-size: 0.6875rem;
     text-transform: uppercase;
@@ -1311,6 +1352,15 @@ body.wrapped-open { overflow: hidden; }
     opacity: 0.9;
     margin-top: 0.375rem;
     font-variant-numeric: tabular-nums;
+}
+.wrapped-count-big.is-done {
+    animation: wrapped-pop 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+    text-shadow: 0 0 1.5rem var(--wrapped-glow, rgba(255, 255, 255, 0.35));
+}
+@keyframes wrapped-pop {
+    0% { transform: scale(1); }
+    45% { transform: scale(1.09); }
+    100% { transform: scale(1); }
 }
 .wrapped-art {
     width: min(60vw, 13rem);
@@ -1343,10 +1393,45 @@ body.wrapped-open { overflow: hidden; }
     background: rgba(0, 0, 0, 0.28);
     opacity: 0;
     transform: translateX(1.5rem);
-    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), background 0.2s ease;
     transition-delay: calc(350ms + var(--wrapped-i, 0) * 70ms);
 }
 .wrapped-slide.is-active .wrapped-item { opacity: 1; transform: none; }
+.wrapped-slide.is-active .wrapped-item:hover {
+    background: rgba(255, 255, 255, 0.14);
+    transform: translateX(0.25rem);
+}
+/* Rank, art, text and count each land on their own beat. */
+.wrapped-item .wrapped-rank,
+.wrapped-item .wrapped-item-art,
+.wrapped-item .wrapped-item-body,
+.wrapped-item .wrapped-item-count {
+    opacity: 0;
+    transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.wrapped-item .wrapped-rank {
+    transform: translateX(-0.6rem);
+    transition-delay: calc(400ms + var(--wrapped-i, 0) * 70ms);
+}
+.wrapped-item .wrapped-item-art {
+    transform: scale(0.8);
+    transition-delay: calc(430ms + var(--wrapped-i, 0) * 70ms);
+}
+.wrapped-item .wrapped-item-body {
+    transform: translateX(0.5rem);
+    transition-delay: calc(460ms + var(--wrapped-i, 0) * 70ms);
+}
+.wrapped-item .wrapped-item-count {
+    transform: translateX(0.5rem);
+    transition-delay: calc(490ms + var(--wrapped-i, 0) * 70ms);
+}
+.wrapped-slide.is-active .wrapped-item .wrapped-rank,
+.wrapped-slide.is-active .wrapped-item .wrapped-item-art,
+.wrapped-slide.is-active .wrapped-item .wrapped-item-body,
+.wrapped-slide.is-active .wrapped-item .wrapped-item-count {
+    opacity: 1;
+    transform: none;
+}
 .wrapped-rank {
     flex: 0 0 auto;
     width: 1.125rem;
@@ -1406,11 +1491,21 @@ body.wrapped-open { overflow: hidden; }
     gap: 0.25rem;
 }
 .wrapped-progress-seg {
+    position: relative;
+    overflow: hidden;
     flex: 1 1 0;
     height: 3px;
     border-radius: 9999px;
     background: rgba(255, 255, 255, 0.3);
     transition: background 0.25s ease, transform 0.25s ease;
+}
+.wrapped-progress-fill {
+    position: absolute;
+    inset: 0;
+    width: 0;
+    border-radius: 9999px;
+    background: #fff;
+    transition: width 0.15s linear;
 }
 .wrapped-progress-seg.is-done { background: rgba(255, 255, 255, 0.75); }
 .wrapped-progress-seg.is-active { background: #fff; transform: scaleY(1.6); }
@@ -1438,13 +1533,28 @@ body.wrapped-open { overflow: hidden; }
 .wrapped-sound:hover { background: rgba(0, 0, 0, 0.7); }
 @media (prefers-reduced-motion: reduce) {
     .wrapped-slide-inner > *,
-    .wrapped-list .wrapped-item {
+    .wrapped-list .wrapped-item,
+    .wrapped-item .wrapped-rank,
+    .wrapped-item .wrapped-item-art,
+    .wrapped-item .wrapped-item-body,
+    .wrapped-item .wrapped-item-count,
+    .wrapped-word {
+        opacity: 1 !important;
+        filter: none !important;
+        transform: none !important;
+        transition: none !important;
+    }
+    .wrapped-slide,
+    .wrapped-progress-seg,
+    .wrapped-progress-fill {
         opacity: 1 !important;
         transform: none !important;
         transition: none !important;
     }
     .wrapped-slide::before,
-    .wrapped-slide.is-active .wrapped-art { animation: none !important; }
+    .wrapped-slide::after,
+    .wrapped-slide.is-active .wrapped-art,
+    .wrapped-count-big.is-done { animation: none !important; }
 }
 @media (max-width: 640px) {
     .home-hero-side { display: none; }
