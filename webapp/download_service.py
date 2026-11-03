@@ -178,6 +178,24 @@ def _clamp_worker_count(n: int) -> int:
     return max(_WORKER_LIMIT_MIN, min(int(n), _WORKER_LIMIT_MAX))
 
 
+# Bulk "Reload library" work runs at its own, much lower concurrency. Enqueuing the
+# whole library used to let every interactive worker pick up a rebuild job at once;
+# each yt-dlp job also spawns a deno JS-challenge solver, which starved the host
+# (502 from Caddy and sshd no longer answering).
+_REBUILD_INFLIGHT_DEFAULT = 2
+_REBUILD_INFLIGHT_MAX = 4
+
+
+def _rebuild_inflight_count() -> int:
+    """How many bulk rebuild jobs may run at once (SPOLOCAL_REBUILD_WORKERS)."""
+    raw = (os.environ.get("SPOLOCAL_REBUILD_WORKERS") or "").strip()
+    try:
+        n = int(raw) if raw else _REBUILD_INFLIGHT_DEFAULT
+    except ValueError:
+        n = _REBUILD_INFLIGHT_DEFAULT
+    return max(1, min(n, _REBUILD_INFLIGHT_MAX))
+
+
 class _WorkerGate:
     """Caps concurrent download jobs; the cap can change at runtime."""
 
@@ -252,6 +270,12 @@ class DownloadService:
         # (playlist_id, track_id) rows currently being rebuilt at both tiers.
         # Once both variants exist, every other format for that track is deleted.
         self._rebuild_pending: set[Tuple[str, str]] = set()
+        # Rebuild work waiting for a free bulk slot: (track_id, quality) ->
+        # (playlist_id, track_id, quality). A dict keeps insertion order and makes
+        # a second press a no-op instead of queueing the library twice.
+        self._rebuild_backlog: Dict[Tuple[str, str], Tuple[str, str, str]] = {}
+        self._rebuild_inflight = 0
+        self._rebuild_limit = _rebuild_inflight_count()
         # (playlist_id, track_id) loudness analyses in flight - avoid duplicate concurrent runs.
         self._loudness_analyzing: set[Tuple[str, str]] = set()
 
@@ -1529,6 +1553,10 @@ class DownloadService:
         and only cleaned up, so a second run is nearly free. A song that appears
         in several playlists is handled once.
 
+        Only ``_rebuild_limit`` downloads run at a time; everything else waits in
+        ``_rebuild_backlog`` and is started by a worker as one finishes, so the
+        host is never asked to run the whole library at once.
+
         Non-destructive per track: the old files are only deleted once both
         qualities are on disk, so a failed re-download never loses audio.
         """
@@ -1536,10 +1564,10 @@ class DownloadService:
         already_ok = 0
         ineligible = 0
         duplicates = 0
-        failed = 0
         seen: set[str] = set()
         # One scan of downloads/ for the whole pass; rebuilt lazily only if needed.
         index: Optional[List[Tuple[str, Path]]] = None
+        backlog: Dict[Tuple[str, str], Tuple[str, str, str]] = {}
         for pl in self.list_playlists_for_user(owner_id):
             if self.is_liked_songs_playlist(pl.id):
                 continue
@@ -1562,28 +1590,50 @@ class DownloadService:
                         self._rebuild_pending.add((pl.id, t.id))
                     self._rebuild_cleanup(pl.id, t.id, audio_changed=False, index=index)
                     continue
-                started = False
                 for q in missing:
-                    if self.start_track_download(
-                        pl.id, t.id, force_redownload=True, quality=q, quiet=True
-                    ):
-                        started = True
-                if started:
-                    # Only mark the row once something is really queued.
-                    with self._lock:
-                        self._rebuild_pending.add((pl.id, t.id))
-                    queued += 1
-                else:
-                    failed += 1
+                    backlog.setdefault((t.id, q), (pl.id, t.id, q))
+                with self._lock:
+                    self._rebuild_pending.add((pl.id, t.id))
+                queued += 1
+        with self._lock:
+            for job_key, item in backlog.items():
+                # Skip what is already queued or already waiting; a second press
+                # must not schedule the same tier twice.
+                if job_key in self._pending_job_keys:
+                    continue
+                self._rebuild_backlog.setdefault(job_key, item)
+        self._pump_rebuild()
         return {
             "queued": queued,
             "already_ok": already_ok,
             "skipped": already_ok + ineligible,
             "ineligible": ineligible,
             "duplicates": duplicates,
-            "failed": failed,
+            "failed": 0,
             "qualities": ["64", "192"],
         }
+
+    def _pump_rebuild(self) -> None:
+        """Start rebuild jobs until the bulk in-flight cap is reached.
+
+        Called after a pass fills the backlog and by a worker whenever a bulk job
+        finishes, so the queue never holds more than a couple of rebuild jobs and
+        interactive downloads always find a free worker.
+        """
+        while True:
+            with self._lock:
+                if self._rebuild_inflight >= self._rebuild_limit or not self._rebuild_backlog:
+                    return
+                job_key = next(iter(self._rebuild_backlog))
+                pl_id, track_id, quality = self._rebuild_backlog.pop(job_key)
+                self._rebuild_inflight += 1
+            queued = self._enqueue_download(
+                pl_id, track_id, quality=quality, force=True, quiet=True, bulk=True
+            )
+            if not queued:
+                # Already queued by an interactive action; free the slot we took.
+                with self._lock:
+                    self._rebuild_inflight -= 1
 
     def _rebuild_cleanup(
         self,
@@ -2045,7 +2095,7 @@ class DownloadService:
                         self._enqueue_download(pl.id, track.id)
 
         while True:
-            _priority, _sequence, job = self.job_queue.get()
+            priority, _sequence, job = self.job_queue.get()
             self._worker_gate.acquire()
             try:
                 job(local_ytdlp)
@@ -2054,6 +2104,10 @@ class DownloadService:
             finally:
                 self._worker_gate.release()
                 self.job_queue.task_done()
+                if priority >= 2:
+                    with self._lock:
+                        self._rebuild_inflight = max(0, self._rebuild_inflight - 1)
+                    self._pump_rebuild()
 
     def spotify_url_search_query(self, raw: str) -> Optional[str]:
         """Spotify track URL -> YouTube search query (artist + title). Playlists return None."""
@@ -2491,13 +2545,15 @@ class DownloadService:
                 }
         return hook
 
-    def _enqueue_download(self, pl_id: str, track_id: str, *, quality: str = str(DEFAULT_KBPS), supplementary: bool = False, force: bool = False, quiet: bool = False) -> bool:
+    def _enqueue_download(self, pl_id: str, track_id: str, *, quality: str = str(DEFAULT_KBPS), supplementary: bool = False, force: bool = False, quiet: bool = False, bulk: bool = False) -> bool:
         q = variant_key(parse_quality_kbps(quality))
         job_key = (track_id, q)
         with self._lock:
             if job_key in self._pending_job_keys:
-                # Already queued; the caller's intent is satisfied.
-                return True
+                # Already queued; the caller's intent is satisfied. A bulk caller
+                # also needs to know no job of its own is running, so it can give
+                # the rebuild slot back instead of waiting for a job that never runs.
+                return not bulk
             self._pending_job_keys.add(job_key)
 
         def job(ytdlp: YtDlpAudioDownloader) -> None:
@@ -2649,5 +2705,5 @@ class DownloadService:
                     time.sleep(delay)
                 self._save_playlists(immediate=False)
 
-        self.job_queue.put((1 if quiet else 0, next(self._job_sequence), job))
+        self.job_queue.put((2 if bulk else (1 if quiet else 0), next(self._job_sequence), job))
         return True

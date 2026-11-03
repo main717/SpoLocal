@@ -857,7 +857,7 @@ class TestReloadLibrary:
         assert service.job_queue.qsize() == 1
         priority, _seq, _job = service.job_queue.get_nowait()
         # Bulk work yields to interactive downloads.
-        assert priority == 1
+        assert priority == 2
 
     def test_a_song_in_two_playlists_is_counted_once(self, service: DownloadService, temp_root: Path) -> None:
         a = service.create_playlist("A", owner_id="u1")
@@ -902,3 +902,28 @@ class TestReloadLibrary:
         assert result["queued"] == 0
         assert result["ineligible"] == 1
         assert service.job_queue.qsize() == 0
+
+    def test_the_rebuild_queue_stays_capped(self, service: DownloadService) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        for i in range(6):
+            pl.add_track(make_track(video_id=f"vid{i}"))
+
+        result = service.reload_library_all_qualities("u1")
+
+        assert result["queued"] == 6
+        # Six tracks x two tiers, but only the in-flight cap is queued up front.
+        assert service.job_queue.qsize() == service._rebuild_limit
+        assert len(service._rebuild_backlog) == 12 - service._rebuild_limit
+
+    def test_pressing_reload_twice_does_not_queue_the_library_twice(
+        self, service: DownloadService
+    ) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        for i in range(3):
+            pl.add_track(make_track(video_id=f"vid{i}"))
+
+        service.reload_library_all_qualities("u1")
+        service.reload_library_all_qualities("u1")
+
+        assert service.job_queue.qsize() == service._rebuild_limit
+        assert len(service._rebuild_backlog) == 6 - service._rebuild_limit
