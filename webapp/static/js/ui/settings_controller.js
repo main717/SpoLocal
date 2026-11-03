@@ -285,9 +285,9 @@ export class SettingsController {
         }
     }
 
-    /** Re-download every song at both tiers and delete all other formats. */
+    /** Bring every song to both tiers and delete all other formats. */
     async reload_library() {
-        if (!confirm('Re-download every song in Data Saver and Highest, and delete all other formats? This can take a while.')) return;
+        if (!confirm('Fill in Data Saver and Highest for every song and delete all other formats? Songs that already have both are skipped.')) return;
         try {
             const r = await fetch('/api/downloads/reload', {
                 method: 'POST',
@@ -299,9 +299,15 @@ export class SettingsController {
             }
             const data = await r.json();
             const queued = Number(data.queued) || 0;
-            const skipped = Number(data.skipped) || 0;
-            const parts = ['Queued ' + queued + ' song' + (queued === 1 ? '' : 's') + ' at both qualities.'];
-            if (skipped) parts.push(skipped + ' skipped (no URL/title).');
+            const already = Number(data.already_ok) || 0;
+            const failed = Number(data.failed) || 0;
+            const parts = [
+                queued
+                    ? 'Queued ' + queued + ' song' + (queued === 1 ? '' : 's') + '.'
+                    : 'Nothing to download.',
+            ];
+            if (already) parts.push(already + ' already correct.');
+            if (failed) parts.push(failed + ' could not be queued.');
             const idle = document.getElementById('dl-idle-msg');
             if (idle) {
                 idle.textContent = parts.join(' ');

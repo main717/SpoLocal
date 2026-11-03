@@ -4,6 +4,7 @@ Resolves tracks from Spotify links or URLs.
 Coordinates yt_dlp downloads, updates state, and triggers enrichment."""
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
@@ -229,7 +230,12 @@ class DownloadService:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.playlists: Dict[str, Playlist] = {}
-        self.job_queue: queue.Queue[Callable[[], None]] = queue.Queue()
+        # (priority, sequence, job): priority 0 is interactive work, 1 is bulk rebuild
+        # work, so a song you add or a quality switch you trigger jumps the backlog.
+        self.job_queue: queue.PriorityQueue[
+            Tuple[int, int, Callable[[YtDlpAudioDownloader], None]]
+        ] = queue.PriorityQueue()
+        self._job_sequence = itertools.count()
         self._lock = threading.Lock()
         # Embed downloader is plain HTTP — safe to use from any thread immediately.
         self._embed = SpotifyEmbedDownloader(root)
@@ -1517,30 +1523,82 @@ class DownloadService:
         return None
 
     def reload_library_all_qualities(self, owner_id: Optional[str] = None) -> dict:
-        """Re-download every track at both quality tiers and drop every other format.
+        """Bring every track to both quality tiers and drop every other format.
 
-        Non-destructive per track: the old files are only deleted once both new
+        Tracks that already have a valid Data Saver and Highest file are skipped
+        and only cleaned up, so a second run is nearly free. A song that appears
+        in several playlists is handled once.
+
+        Non-destructive per track: the old files are only deleted once both
         qualities are on disk, so a failed re-download never loses audio.
-        Returns a summary of what was queued and skipped.
         """
-        queued_tracks = 0
-        skipped = 0
+        queued = 0
+        already_ok = 0
+        ineligible = 0
+        duplicates = 0
+        failed = 0
+        seen: set[str] = set()
+        # One scan of downloads/ for the whole pass; rebuilt lazily only if needed.
+        index: Optional[List[Tuple[str, Path]]] = None
         for pl in self.list_playlists_for_user(owner_id):
             if self.is_liked_songs_playlist(pl.id):
                 continue
             for t in list(pl.tracks):
-                if not self._track_can_queue_quality_download(t):
-                    skipped += 1
+                key = self._track_content_key(t)
+                if key in seen:
+                    duplicates += 1
                     continue
-                with self._lock:
-                    self._rebuild_pending.add((pl.id, t.id))
-                for q in ("64", "192"):
-                    self.start_track_download(pl.id, t.id, force_redownload=True, quality=q)
-                queued_tracks += 1
-        return {"queued": queued_tracks, "skipped": skipped, "qualities": ["64", "192"]}
+                seen.add(key)
+                if not self._track_can_queue_quality_download(t):
+                    ineligible += 1
+                    continue
+                missing = [q for q in ("64", "192") if not self._track_has_resolved_file(t, q)]
+                if not missing:
+                    # Correct files already on disk; just drop leftover formats.
+                    already_ok += 1
+                    if index is None:
+                        index = self._downloads_index()
+                    with self._lock:
+                        self._rebuild_pending.add((pl.id, t.id))
+                    self._rebuild_cleanup(pl.id, t.id, audio_changed=False, index=index)
+                    continue
+                started = False
+                for q in missing:
+                    if self.start_track_download(
+                        pl.id, t.id, force_redownload=True, quality=q, quiet=True
+                    ):
+                        started = True
+                if started:
+                    # Only mark the row once something is really queued.
+                    with self._lock:
+                        self._rebuild_pending.add((pl.id, t.id))
+                    queued += 1
+                else:
+                    failed += 1
+        return {
+            "queued": queued,
+            "already_ok": already_ok,
+            "skipped": already_ok + ineligible,
+            "ineligible": ineligible,
+            "duplicates": duplicates,
+            "failed": failed,
+            "qualities": ["64", "192"],
+        }
 
-    def _rebuild_cleanup(self, playlist_id: str, track_id: str) -> None:
-        """Delete every non-canonical audio file for one rebuilt track."""
+    def _rebuild_cleanup(
+        self,
+        playlist_id: str,
+        track_id: str,
+        *,
+        audio_changed: bool = True,
+        index: Optional[List[Tuple[str, Path]]] = None,
+    ) -> None:
+        """Delete every non-canonical audio file for one rebuilt track.
+
+        ``audio_changed`` is False when the caller only wants the leftover formats
+        dropped for a track whose files are already correct; the cover tile is
+        kept in that case because the audio it was made from did not change.
+        """
         key = (playlist_id, track_id)
         with self._lock:
             if key not in self._rebuild_pending:
@@ -1570,7 +1628,7 @@ class DownloadService:
                 keep.add((self.root / "downloads" / rel).resolve())
             except OSError:
                 continue
-        legacy = self._legacy_files_for_track(track, keep)
+        legacy = self._legacy_files_for_track(track, keep, index=index)
         all_media = list(variants.values()) + [track.media_relpath] + legacy
         canonical: Dict[str, str] = {}
         seen: set[Path] = set()
@@ -1605,24 +1663,45 @@ class DownloadService:
         track.media_variants = canonical
         track.media_relpath = canonical.get(variant_key(DEFAULT_KBPS)) or next(iter(canonical.values()), None)
 
-        self._drop_cover_tiles(pl.id, track.id)
+        if audio_changed:
+            self._drop_cover_tiles(pl.id, track.id)
         self._save_playlists(immediate=False)
 
-    def _legacy_files_for_track(self, track: Track, keep: set[Path]) -> List[str]:
+    def _downloads_index(self) -> List[Tuple[str, Path]]:
+        """(file name, resolved path) for every file under downloads/.
+
+        Built once per bulk pass: a rglob per track turns a library scan into
+        millions of stat calls.
+        """
+        downloads_root = (self.root / "downloads").resolve()
+        out: List[Tuple[str, Path]] = []
+        for path in (self.root / "downloads").rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                rp = path.resolve()
+            except OSError:
+                continue
+            if not rp.is_relative_to(downloads_root):
+                continue
+            out.append((path.name, rp))
+        return out
+
+    def _legacy_files_for_track(
+        self,
+        track: Track,
+        keep: set[Path],
+        *,
+        index: Optional[List[Tuple[str, Path]]] = None,
+    ) -> List[str]:
         """Relative paths of same-video files whose suffix is not 64/192."""
         vid = self._youtube_video_id_for_track(track)
         if not vid:
             return []
         downloads_root = (self.root / "downloads").resolve()
         found: List[str] = []
-        for path in (self.root / "downloads").rglob("*"):
-            if not path.is_file():
-                continue
-            if f"[{vid}]" not in path.name:
-                continue
-            try:
-                rp = path.resolve()
-            except OSError:
+        for name, rp in (self._downloads_index() if index is None else index):
+            if f"[{vid}]" not in name:
                 continue
             if rp in keep:
                 continue
@@ -1966,7 +2045,7 @@ class DownloadService:
                         self._enqueue_download(pl.id, track.id)
 
         while True:
-            job = self.job_queue.get()
+            _priority, _sequence, job = self.job_queue.get()
             self._worker_gate.acquire()
             try:
                 job(local_ytdlp)
@@ -2306,8 +2385,13 @@ class DownloadService:
         *,
         force_redownload: bool = False,
         quality: str = str(DEFAULT_KBPS),
+        quiet: bool = False,
     ) -> bool:
-        """Queue a pending (or retry failed) track for download."""
+        """Queue a pending (or retry failed) track for download.
+
+        ``quiet`` keeps a bulk rebuild from touching track status or writing the
+        playlist file, so tracks that are playing keep their state.
+        """
         pl = self.get_playlist(playlist_id.strip())
         if not pl:
             return False
@@ -2322,15 +2406,21 @@ class DownloadService:
             return True
         if force_redownload:
             if not (track.url or track.youtube_video_id):
-                return False
+                derived = self._youtube_video_id_for_track(track)
+                if derived:
+                    track.youtube_video_id = derived
+                elif not ((track.title or "").strip() and (track.artist or "").strip()):
+                    return False
             # Never delete the current audio up front. The replacement is written
             # alongside it and only the canonical files survive once both tiers
             # exist (_rebuild_cleanup), so a failed re-download never costs audio.
-            if track.status != DownloadStatus.downloading:
-                pl.update_track_status(track.id, DownloadStatus.queued, None)
-            self._save_playlists()
-            self._enqueue_download(playlist_id.strip(), track.id, quality=q, force=True)
-            return True
+            if not quiet:
+                if track.status != DownloadStatus.downloading:
+                    pl.update_track_status(track.id, DownloadStatus.queued, None)
+                self._save_playlists()
+            return self._enqueue_download(
+                playlist_id.strip(), track.id, quality=q, force=True, quiet=quiet
+            )
         if not self._track_has_resolved_file(track, q):
             supplementary = track.status == DownloadStatus.done or self._track_has_resolved_file(track)
             if supplementary:
@@ -2401,12 +2491,13 @@ class DownloadService:
                 }
         return hook
 
-    def _enqueue_download(self, pl_id: str, track_id: str, *, quality: str = str(DEFAULT_KBPS), supplementary: bool = False, force: bool = False) -> None:
+    def _enqueue_download(self, pl_id: str, track_id: str, *, quality: str = str(DEFAULT_KBPS), supplementary: bool = False, force: bool = False, quiet: bool = False) -> bool:
         q = variant_key(parse_quality_kbps(quality))
         job_key = (track_id, q)
         with self._lock:
             if job_key in self._pending_job_keys:
-                return
+                # Already queued; the caller's intent is satisfied.
+                return True
             self._pending_job_keys.add(job_key)
 
         def job(ytdlp: YtDlpAudioDownloader) -> None:
@@ -2430,7 +2521,7 @@ class DownloadService:
                         self._save_playlists(immediate=False)
                     return
 
-                if not supplementary:
+                if not supplementary and not quiet:
                     pl.update_track_status(track_id, DownloadStatus.downloading)
 
                 hook = self._make_progress_hook(track_id, track.title, track.artist)
@@ -2558,4 +2649,5 @@ class DownloadService:
                     time.sleep(delay)
                 self._save_playlists(immediate=False)
 
-        self.job_queue.put(job)
+        self.job_queue.put((1 if quiet else 0, next(self._job_sequence), job))
+        return True

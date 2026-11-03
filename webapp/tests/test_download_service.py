@@ -820,3 +820,85 @@ class TestWorkerCount:
     def test_missing_settings_file_falls_back_to_the_worker_count(self, service: DownloadService) -> None:
         # conftest pins the environment default to 0, so nothing is spawned in tests.
         assert service.worker_count() == 0
+
+
+class TestReloadLibrary:
+    def test_skips_a_track_that_already_has_both_tiers(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        good = make_track(
+            video_id="goodid",
+            variants={"64": "youtube/good__64k.webm", "192": "youtube/good__192k.opus"},
+        )
+        write_media(temp_root, "youtube/good__64k.webm")
+        write_media(temp_root, "youtube/good__192k.opus")
+        pl.add_track(good)
+
+        result = service.reload_library_all_qualities("u1")
+
+        assert result["already_ok"] == 1
+        assert result["queued"] == 0
+        assert result["failed"] == 0
+        assert service.job_queue.qsize() == 0
+
+    def test_only_the_missing_tier_is_queued(self, service: DownloadService, temp_root: Path) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        partial = make_track(video_id="partialid", variants={"64": "youtube/p__64k.webm"})
+        write_media(temp_root, "youtube/p__64k.webm")
+        pl.add_track(partial)
+
+        result = service.reload_library_all_qualities("u1")
+
+        assert result["queued"] == 1
+        assert result["already_ok"] == 0
+        assert (partial.id, "192") in service._pending_job_keys
+        assert (partial.id, "64") not in service._pending_job_keys
+        assert service.job_queue.qsize() == 1
+        priority, _seq, _job = service.job_queue.get_nowait()
+        # Bulk work yields to interactive downloads.
+        assert priority == 1
+
+    def test_a_song_in_two_playlists_is_counted_once(self, service: DownloadService, temp_root: Path) -> None:
+        a = service.create_playlist("A", owner_id="u1")
+        b = service.create_playlist("B", owner_id="u1")
+        a.add_track(make_track(video_id="dupid"))
+        b.add_track(make_track(video_id="dupid"))
+
+        result = service.reload_library_all_qualities("u1")
+
+        assert result["queued"] == 1
+        assert result["duplicates"] == 1
+        assert service.job_queue.qsize() == 2  # both missing tiers, once
+
+    def test_leftover_formats_are_dropped_for_an_already_correct_track(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        good = make_track(
+            video_id="goodid",
+            variants={"64": "youtube/good__64k.webm", "192": "youtube/good__192k.opus"},
+        )
+        write_media(temp_root, "youtube/good__64k.webm")
+        write_media(temp_root, "youtube/good__192k.opus")
+        stale = write_media(temp_root, "youtube/Song [goodid]__120k.mp3")
+        pl.add_track(good)
+
+        service.reload_library_all_qualities("u1")
+
+        assert not stale.exists()
+        assert (temp_root / "downloads" / "youtube" / "good__64k.webm").is_file()
+        assert (temp_root / "downloads" / "youtube" / "good__192k.opus").is_file()
+
+    def test_a_track_without_any_source_is_not_counted_as_queued(
+        self, service: DownloadService, temp_root: Path
+    ) -> None:
+        pl = service.create_playlist("Mix", owner_id="u1")
+        orphan = Track.create("", "")
+        pl.add_track(orphan)
+
+        result = service.reload_library_all_qualities("u1")
+
+        assert result["queued"] == 0
+        assert result["ineligible"] == 1
+        assert service.job_queue.qsize() == 0
